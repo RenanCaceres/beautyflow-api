@@ -1,0 +1,71 @@
+-- ===========================================
+--  BeautyFlow — PostgreSQL
+--  Execute no Railway ou em qualquer Postgres
+-- ===========================================
+
+CREATE TABLE IF NOT EXISTS clientes (
+  id         SERIAL PRIMARY KEY,
+  nome       VARCHAR(100) NOT NULL,
+  telefone   VARCHAR(20)  NOT NULL,
+  criado_em  TIMESTAMP    DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS servicos (
+  id                     SERIAL PRIMARY KEY,
+  nome                   VARCHAR(100)   NOT NULL,
+  valor                  NUMERIC(10,2)  NOT NULL,
+  intervalo_retorno_dias INT            NOT NULL DEFAULT 30,
+  criado_em              TIMESTAMP      DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS agendamentos (
+  id         SERIAL PRIMARY KEY,
+  cliente_id INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  servico_id INT          NOT NULL REFERENCES servicos(id),
+  data_hora  TIMESTAMP    NOT NULL,
+  status     VARCHAR(20)  NOT NULL DEFAULT 'agendado'
+               CHECK (status IN ('agendado','realizado','cancelado')),
+  observacao VARCHAR(300),
+  criado_em  TIMESTAMP    DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS consumo (
+  id        SERIAL PRIMARY KEY,
+  produto   VARCHAR(150)  NOT NULL,
+  valor     NUMERIC(10,2) NOT NULL,
+  data      DATE          NOT NULL DEFAULT CURRENT_DATE,
+  criado_em TIMESTAMP     DEFAULT NOW()
+);
+
+-- Dados de exemplo (só insere se estiver vazio)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM clientes LIMIT 1) THEN
+
+    INSERT INTO clientes (nome, telefone) VALUES
+      ('Ana Paula Silva',   '(43) 9 9123-4567'),
+      ('Carla Mendes',      '(43) 9 9876-5432'),
+      ('Juliana Rodrigues', '(43) 9 9111-2233'),
+      ('Mariana Ferreira',  '(43) 9 9444-5566'),
+      ('Patricia Souza',    '(43) 9 9555-7788');
+
+    INSERT INTO servicos (nome, valor, intervalo_retorno_dias) VALUES
+      ('Limpeza de Pele',       150.00, 30),
+      ('Design de Sobrancelha',  50.00, 21),
+      ('Peeling Químico',       220.00, 45),
+      ('Hidratação Facial',      90.00, 15);
+
+    INSERT INTO agendamentos (cliente_id, servico_id, data_hora, status) VALUES
+      (1, 1, NOW(),                    'agendado'),
+      (2, 2, NOW(),                    'agendado'),
+      (3, 3, NOW() - INTERVAL '2 days','realizado'),
+      (4, 4, NOW() - INTERVAL '5 days','realizado'),
+      (5, 1, NOW() - INTERVAL '1 day', 'realizado');
+
+    INSERT INTO consumo (produto, valor, data) VALUES
+      ('Ácido Glicólico 30%',          89.00, CURRENT_DATE - 10),
+      ('Creme Hidratante Profissional', 134.00, CURRENT_DATE - 12),
+      ('Henna para Sobrancelha',         45.00, CURRENT_DATE - 15);
+
+  END IF;
+END $$;
