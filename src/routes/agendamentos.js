@@ -23,7 +23,14 @@ router.post('/', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// PATCH /api/agendamentos/:id/baixa  { status, observacao }
+// PUT /api/agendamentos/:id — editar agendamento
+router.put('/:id', async (req, res, next) => {
+  try {
+    res.json(await Agendamentos.atualizar(req.params.id, req.body));
+  } catch(e) { next(e); }
+});
+
+// PATCH /api/agendamentos/:id/baixa
 router.patch('/:id/baixa', async (req, res, next) => {
   try {
     res.json(await Agendamentos.darBaixa(req.params.id, req.body));

@@ -1,5 +1,5 @@
 -- ===========================================
---  BeautyFlow — PostgreSQL
+--  BeautyFlow — PostgreSQL v2
 --  Execute no Railway ou em qualquer Postgres
 -- ===========================================
 
@@ -19,14 +19,22 @@ CREATE TABLE IF NOT EXISTS servicos (
 );
 
 CREATE TABLE IF NOT EXISTS agendamentos (
-  id         SERIAL PRIMARY KEY,
-  cliente_id INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
-  servico_id INT          NOT NULL REFERENCES servicos(id),
-  data_hora  TIMESTAMP    NOT NULL,
-  status     VARCHAR(20)  NOT NULL DEFAULT 'agendado'
-               CHECK (status IN ('agendado','realizado','cancelado')),
-  observacao VARCHAR(300),
-  criado_em  TIMESTAMP    DEFAULT NOW()
+  id          SERIAL PRIMARY KEY,
+  cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  servico_id  INT          REFERENCES servicos(id),  -- mantido para retrocompatibilidade
+  data_hora   TIMESTAMP    NOT NULL,
+  status      VARCHAR(20)  NOT NULL DEFAULT 'agendado'
+                CHECK (status IN ('agendado','realizado','cancelado')),
+  observacao  VARCHAR(300),
+  valor_final NUMERIC(10,2),                         -- valor cobrado (pode diferir do padrão)
+  criado_em   TIMESTAMP    DEFAULT NOW()
+);
+
+-- Tabela para múltiplos serviços por agendamento
+CREATE TABLE IF NOT EXISTS agendamento_servicos (
+  agendamento_id INT NOT NULL REFERENCES agendamentos(id) ON DELETE CASCADE,
+  servico_id     INT NOT NULL REFERENCES servicos(id),
+  PRIMARY KEY (agendamento_id, servico_id)
 );
 
 CREATE TABLE IF NOT EXISTS consumo (
@@ -36,6 +44,12 @@ CREATE TABLE IF NOT EXISTS consumo (
   data      DATE          NOT NULL DEFAULT CURRENT_DATE,
   criado_em TIMESTAMP     DEFAULT NOW()
 );
+
+-- Migração: popula agendamento_servicos com dados existentes
+INSERT INTO agendamento_servicos (agendamento_id, servico_id)
+SELECT id, servico_id FROM agendamentos
+WHERE servico_id IS NOT NULL
+ON CONFLICT DO NOTHING;
 
 -- Dados de exemplo (só insere se estiver vazio)
 DO $$
@@ -61,6 +75,9 @@ BEGIN
       (3, 3, NOW() - INTERVAL '2 days','realizado'),
       (4, 4, NOW() - INTERVAL '5 days','realizado'),
       (5, 1, NOW() - INTERVAL '1 day', 'realizado');
+
+    INSERT INTO agendamento_servicos (agendamento_id, servico_id) VALUES
+      (1, 1), (2, 2), (3, 3), (4, 4), (5, 1);
 
     INSERT INTO consumo (produto, valor, data) VALUES
       ('Ácido Glicólico 30%',          89.00, CURRENT_DATE - 10),
