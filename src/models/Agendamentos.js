@@ -64,7 +64,8 @@ const Agendamentos = {
 
     const r = await query(
       'INSERT INTO agendamentos(cliente_id, servico_id, data_hora, observacao) VALUES($1,$2,$3,$4) RETURNING id',
-      [parseInt(cliente_id), primaryId, new Date(data_hora), observacao || null]
+      // CORREÇÃO: passa data_hora como string com offset para pg interpretar corretamente
+      [parseInt(cliente_id), primaryId, data_hora, observacao || null]
     );
     const agId = r.rows[0].id;
 
@@ -88,7 +89,8 @@ const Agendamentos = {
 
     await query(
       'UPDATE agendamentos SET servico_id=$1, data_hora=$2, observacao=$3 WHERE id=$4',
-      [primaryId, new Date(data_hora), observacao || null, parseInt(id)]
+      // CORREÇÃO: passa data_hora como string com offset
+      [primaryId, data_hora, observacao || null, parseInt(id)]
     );
 
     // Atualiza serviços: apaga e reinseré
