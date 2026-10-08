@@ -1,3 +1,4 @@
+process.env.TZ = 'UTC';
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
@@ -30,6 +31,7 @@ app.use('/api/agendamentos', require('./routes/agendamentos'));
 app.use('/api/consumo',      require('./routes/consumo'));
 app.use('/api/caixa',        require('./routes/caixa'));
 app.use('/api/retorno',      require('./routes/retorno'));
+app.use('/api/marketing',   require('./routes/marketing'));
 
 // ── Error handler ─────────────────────────────────────────────
 app.use((err, req, res, next) => {
