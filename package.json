@@ -1,6 +1,8 @@
 {
   "name": "beautyflow-api",
   "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
   "description": "API REST BeautyFlow — PostgreSQL",
   "main": "src/app.js",
   "scripts": {

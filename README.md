@@ -324,6 +324,16 @@ Teste a disponibilidade acessando: **`http://localhost:3000/api/health`**
 
 ---
 
+# ⚖️ Licença & Direitos Autorais
+
+**Copyright © 2026 Renan Cáceres — Todos os Direitos Reservados ([LICENSE](./LICENSE)).**
+
+Este projeto possui **Licença Proprietária (`UNLICENSED`)**. A visibilidade pública deste repositório destina-se exclusivamente para fins de demonstração de portfólio profissional.
+
+> 🚫 **É expressamente proibido** clonar, copiar, modificar, distribuir, sublicenciar ou utilizar este código-fonte (total ou parcialmente) para fins próprios, de terceiros ou comerciais sem autorização prévia e por escrito do autor. Protegido pela Lei de Direitos Autorais (Lei nº 9.610/1998) e pela Lei do Software (Lei nº 9.609/1998).
+
+---
+
 # 👨‍💻 Autor
 
 <div align="center">

@@ -1,0 +1,59 @@
+LICENÇA PROPRIETÁRIA — TODOS OS DIREITOS RESERVADOS
+PROPRIETARY LICENSE — ALL RIGHTS RESERVED
+
+Copyright (c) 2026 Renan Cáceres (renancanselmo@gmail.com).
+Todos os direitos reservados. / All rights reserved.
+
+================================================================================
+[PORTUGUÊS]
+================================================================================
+
+Este software e todo o seu código-fonte, arquitetura, scripts de banco de dados,
+documentação e arquivos associados (doravante denominados "Software") são de
+propriedade exclusiva de Renan Cáceres, protegidos pela Lei de Direitos Autorais
+(Lei nº 9.610/1998), pela Lei do Software (Lei nº 9.609/1998) e por tratados
+internacionais de propriedade intelectual.
+
+NENHUMA LICENÇA OU PERMISSÃO É CONCEDIDA. É expressamente PROIBIDO, sem a
+autorização prévia, expressa e por escrito do titular dos direitos autorais:
+
+1. Clonar, copiar, baixar ou reproduzir este repositório ou qualquer parte dele
+   para uso próprio, de terceiros ou comercial;
+2. Modificar, adaptar, traduzir, realizar engenharia reversa, descompilar ou
+   criar obras derivadas a partir deste Software;
+3. Distribuir, redistribuir, publicar, sublicenciar, vender, alugar ou ceder
+   o Software ou qualquer parte de seu código-fonte;
+4. Utilizar este Software, total ou parcialmente, em ambientes de produção,
+   homologação ou projetos comerciais/pessoais sem licença formal do autor.
+
+A disponibilização pública deste repositório destina-se EXCLUSIVAMENTE para fins
+de visualização de portfólio profissional. O acesso visual ao código não implica
+cessão ou licenciamento de qualquer direito de propriedade intelectual.
+
+Qualquer violação aos termos desta licença sujeitará o infrator às sanções
+civis e penais previstas na legislação aplicável.
+
+================================================================================
+[ENGLISH]
+================================================================================
+
+This software and all of its source code, architecture, database scripts,
+documentation, and associated files (collectively, the "Software") are the
+exclusive property of Renan Cáceres and are protected by copyright laws and
+international intellectual property treaties.
+
+NO LICENSE OR PERMISSION IS GRANTED. Without the prior, express, written
+permission of the copyright holder, you are strictly PROHIBITED from:
+
+1. Cloning, copying, downloading, or reproducing this repository or any part
+   thereof for personal, third-party, or commercial use;
+2. Modifying, adapting, translating, reverse-engineering, decompiling, or
+   creating derivative works based on the Software;
+3. Distributing, redistributing, publishing, sublicensing, selling, leasing,
+   or transferring the Software or any portion of its source code;
+4. Using this Software, in whole or in part, in any production, staging,
+   commercial, or personal environment without a formal license from the author.
+
+Public visibility of this repository is provided SOLELY for professional
+portfolio viewing purposes. Viewing the code does not grant any intellectual
+property rights or licenses.
