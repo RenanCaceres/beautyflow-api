@@ -15,6 +15,17 @@ function chaveDataHora(dataHora) {
   return iso.slice(0, 16); // YYYY-MM-DDTHH:MM
 }
 
+function formatarListaNomes(nomesString) {
+  const nomes = String(nomesString || '')
+    .split('||')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (nomes.length === 0) return 'seu atendimento';
+  if (nomes.length === 1) return nomes[0];
+  if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
+  return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
 const SQL_AGENDAMENTOS_COM_SERVICOS = `
   SELECT
     a.id,
@@ -25,11 +36,11 @@ const SQL_AGENDAMENTOS_COM_SERVICOS = `
     c.telefone AS cliente_telefone,
     COALESCE(
       NULLIF(
-        STRING_AGG(sv.nome, ' + ' ORDER BY sv.nome),
+        STRING_AGG(sv.nome, '||' ORDER BY sv.nome),
         ''
       ),
       sl.nome,
-      'atendimento'
+      'seu atendimento'
     ) AS servicos_nomes
   FROM agendamentos a
   JOIN clientes c ON c.id = a.cliente_id
@@ -39,7 +50,8 @@ const SQL_AGENDAMENTOS_COM_SERVICOS = `
 `;
 
 /**
- * 1. Lembrete no dia do agendamento (para agendamentos de hoje que ainda estão a > 45 min)
+ * 1. Lembrete no dia do agendamento (para agendamentos de hoje que ainda estão a > 45 min
+ *    e que não acabaram de ser agendados hoje mesmo com mensagem de confirmação)
  */
 async function enfileirarLembretesDoDia() {
   const r = await query(`
@@ -48,6 +60,13 @@ async function enfileirarLembretesDoDia() {
       AND COALESCE(c.aceita_whatsapp, TRUE) = TRUE
       AND a.data_hora::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
       AND a.data_hora > (NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '45 minutes'
+      AND NOT EXISTS (
+        SELECT 1 FROM mensagens_whatsapp m
+        WHERE m.cliente_id = c.id
+          AND m.tipo = 'confirmacao'
+          AND m.referencia LIKE ('ag-conf-' || a.id || '-%')
+          AND (m.criado_em AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+      )
     GROUP BY a.id, c.id, sl.id
     ORDER BY a.data_hora ASC
   `);
@@ -56,11 +75,12 @@ async function enfileirarLembretesDoDia() {
   for (const ag of r.rows) {
     const primeiroNome = ag.cliente_nome.trim().split(' ')[0];
     const hora = extrairHora(ag.data_hora);
+    const listaServicos = formatarListaNomes(ag.servicos_nomes);
     const ref = `ag-dia-${ag.id}-${chaveDataHora(ag.data_hora)}`;
 
     const texto =
       `Olá, ${primeiroNome}! Passando para lembrar do seu agendamento hoje às ${hora} ` +
-      `(${ag.servicos_nomes}) ✨ Estamos te esperando!`;
+      `para fazer ${listaServicos} ✨ Estamos te esperando!`;
 
     const ins = await query(
       `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto)
@@ -96,10 +116,11 @@ async function enfileirarLembretes30Min() {
   for (const ag of r.rows) {
     const primeiroNome = ag.cliente_nome.trim().split(' ')[0];
     const hora = extrairHora(ag.data_hora);
+    const listaServicos = formatarListaNomes(ag.servicos_nomes);
     const ref = `ag-30m-${ag.id}-${chaveDataHora(ag.data_hora)}`;
 
     const texto =
-      `Oi, ${primeiroNome}! Seu horário de ${ag.servicos_nomes} é daqui a 30 minutinhos ` +
+      `Oi, ${primeiroNome}! Seu horário para fazer ${listaServicos} é daqui a 30 minutinhos ` +
       `(às ${hora}) ⏰ Já estamos te esperando!`;
 
     const ins = await query(

@@ -1,4 +1,54 @@
 const { query } = require('../database');
+const { acordarFila } = require('../services/filaWhatsapp');
+
+// Formata lista como "n, m e o"
+function formatarListaServicos(servicos, servicoNomeFallback) {
+  const nomes = Array.isArray(servicos) && servicos.length > 0
+    ? servicos.map((s) => s.nome).filter(Boolean)
+    : (servicoNomeFallback ? [servicoNomeFallback] : []);
+
+  if (nomes.length === 0) return 'seu atendimento';
+  if (nomes.length === 1) return nomes[0];
+  if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
+  return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+}
+
+function extrairPartesDataHora(dataHora) {
+  const iso = typeof dataHora === 'string' ? dataHora : new Date(dataHora).toISOString();
+  const [ano, mes, dia] = iso.slice(0, 10).split('-');
+  const hora = iso.slice(11, 16);
+  const chave = iso.slice(0, 16);
+  return { dataBr: `${dia}/${mes}/${ano}`, hora, chave };
+}
+
+async function enfileirarConfirmacaoWhatsapp(ag, ehAtualizacao = false) {
+  if (!ag || !ag.cliente_id || !ag.cliente_telefone) return;
+
+  const cli = await query(
+    `SELECT COALESCE(aceita_whatsapp, TRUE) AS aceita FROM clientes WHERE id = $1`,
+    [ag.cliente_id]
+  );
+  if (cli.rowCount > 0 && cli.rows[0].aceita === false) return;
+
+  const primeiroNome = String(ag.cliente_nome || '').trim().split(' ')[0] || 'Cliente';
+  const { dataBr, hora, chave } = extrairPartesDataHora(ag.data_hora);
+  const listaServicos = formatarListaServicos(ag.servicos, ag.servico_nome);
+  const ref = `ag-conf-${ag.id}-${chave}`;
+
+  const texto = ehAtualizacao
+    ? `Olá, ${primeiroNome}! ✨ Seu agendamento foi atualizado para o dia ${dataBr}, às ${hora}, para fazer ${listaServicos}. Qualquer dúvida estamos à disposição!`
+    : `Olá, ${primeiroNome}! ✨ Passando para confirmar que seu horário foi agendado para o dia ${dataBr}, às ${hora}, para fazer ${listaServicos}. Te esperamos!`;
+
+  await query(
+    `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto, status, erro)
+     VALUES ($1, $2, 'confirmacao', $3, $4, 'pendente', NULL)
+     ON CONFLICT (cliente_id, tipo, referencia)
+     DO UPDATE SET texto = EXCLUDED.texto, status = 'pendente', erro = NULL`,
+    [ag.cliente_id, ag.cliente_telefone, ref, texto]
+  );
+
+  acordarFila();
+}
 
 const Agendamentos = {
 
@@ -77,7 +127,14 @@ const Agendamentos = {
       );
     }
 
-    return this.buscarPorId(agId);
+    const agendamentoCriado = await this.buscarPorId(agId);
+
+    // Enfileira mensagem de confirmação no WhatsApp (com range limit via WAHA)
+    await enfileirarConfirmacaoWhatsapp(agendamentoCriado, false).catch((e) => {
+      console.error('Aviso: não foi possível enfileirar confirmação de agendamento:', e.message);
+    });
+
+    return agendamentoCriado;
   },
 
   async atualizar(id, { servico_id, servico_ids, data_hora, observacao }) {
@@ -102,15 +159,21 @@ const Agendamentos = {
       );
     }
 
-    // Remove lembretes pendentes do horário antigo caso tenha mudado a data/hora
+    // Remove lembretes/confirmações pendentes do horário antigo caso tenha mudado a data/hora
     await query(
       `DELETE FROM mensagens_whatsapp
        WHERE status = 'pendente'
-         AND (referencia LIKE $1 OR referencia LIKE $2)`,
-      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+         AND (referencia LIKE $1 OR referencia LIKE $2 OR referencia LIKE $3)`,
+      [`ag-conf-${parseInt(id)}-%`, `ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
     ).catch(() => {});
 
-    return this.buscarPorId(id);
+    const agendamentoAtualizado = await this.buscarPorId(id);
+
+    await enfileirarConfirmacaoWhatsapp(agendamentoAtualizado, true).catch((e) => {
+      console.error('Aviso: não foi possível enfileirar atualização de agendamento:', e.message);
+    });
+
+    return agendamentoAtualizado;
   },
 
   async darBaixa(id, { status, observacao, servico_ids, valor_final }) {
@@ -137,8 +200,8 @@ const Agendamentos = {
     await query(
       `DELETE FROM mensagens_whatsapp
        WHERE status = 'pendente'
-         AND (referencia LIKE $1 OR referencia LIKE $2)`,
-      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+         AND (referencia LIKE $1 OR referencia LIKE $2 OR referencia LIKE $3)`,
+      [`ag-conf-${parseInt(id)}-%`, `ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
     ).catch(() => {});
 
     return this.buscarPorId(id);
@@ -148,8 +211,8 @@ const Agendamentos = {
     await query(
       `DELETE FROM mensagens_whatsapp
        WHERE status = 'pendente'
-         AND (referencia LIKE $1 OR referencia LIKE $2)`,
-      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+         AND (referencia LIKE $1 OR referencia LIKE $2 OR referencia LIKE $3)`,
+      [`ag-conf-${parseInt(id)}-%`, `ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
     ).catch(() => {});
     await query('DELETE FROM agendamentos WHERE id=$1', [parseInt(id)]);
   },

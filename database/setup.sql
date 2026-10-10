@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
   id          SERIAL PRIMARY KEY,
   cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   telefone    VARCHAR(20)  NOT NULL,
-  tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('retorno','marketing','lembrete_dia','lembrete_30m')),
+  tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('confirmacao','retorno','marketing','lembrete_dia','lembrete_30m')),
   referencia  VARCHAR(100) NOT NULL,
   texto       TEXT         NOT NULL,
   status      VARCHAR(12)  NOT NULL DEFAULT 'pendente'

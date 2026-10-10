@@ -26,7 +26,7 @@ async function garantirTabela() {
       id          SERIAL PRIMARY KEY,
       cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
       telefone    VARCHAR(20)  NOT NULL,
-      tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('retorno','marketing','lembrete_dia','lembrete_30m')),
+      tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('confirmacao','retorno','marketing','lembrete_dia','lembrete_30m')),
       referencia  VARCHAR(100) NOT NULL,
       texto       TEXT         NOT NULL,
       status      VARCHAR(12)  NOT NULL DEFAULT 'pendente'
@@ -39,7 +39,7 @@ async function garantirTabela() {
   await query(`
     ALTER TABLE mensagens_whatsapp DROP CONSTRAINT IF EXISTS mensagens_whatsapp_tipo_check;
     ALTER TABLE mensagens_whatsapp ADD CONSTRAINT mensagens_whatsapp_tipo_check
-      CHECK (tipo IN ('retorno','marketing','lembrete_dia','lembrete_30m'));
+      CHECK (tipo IN ('confirmacao','retorno','marketing','lembrete_dia','lembrete_30m'));
   `);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
@@ -48,7 +48,7 @@ async function garantirTabela() {
 }
 
 async function proximaPendente() {
-  // Prioriza lembretes de 30 min e lembretes do dia na fila, mantendo o range limit entre cada envio
+  // Prioriza confirmações de agendamento, lembretes de 30 min e lembretes do dia na fila, mantendo o range limit
   const r = await query(`
     UPDATE mensagens_whatsapp SET status='enviando'
     WHERE id = (
@@ -56,10 +56,11 @@ async function proximaPendente() {
       WHERE status='pendente'
       ORDER BY
         CASE tipo
-          WHEN 'lembrete_30m' THEN 1
-          WHEN 'lembrete_dia' THEN 2
-          WHEN 'retorno'      THEN 3
-          ELSE 4
+          WHEN 'confirmacao'  THEN 1
+          WHEN 'lembrete_30m' THEN 2
+          WHEN 'lembrete_dia' THEN 3
+          WHEN 'retorno'      THEN 4
+          ELSE 5
         END ASC,
         id ASC
       LIMIT 1
