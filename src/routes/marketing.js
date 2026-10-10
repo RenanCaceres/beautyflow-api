@@ -1,14 +1,21 @@
 const express = require('express');
 const { GoogleGenAI } = require('@google/genai');
+const { gerarMensagemUnicaRetorno } = require('../services/contextoRetorno');
 
 const router = express.Router();
 
 // A chave é lida automaticamente da variável de ambiente GEMINI_API_KEY
-const ai = new GoogleGenAI({});
-const MODELO = 'gemini-3.1-flash-lite';
+let aiInstance = null;
+function getAI() {
+  if (!aiInstance) aiInstance = new GoogleGenAI({});
+  return aiInstance;
+}
+const MODELO = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 // POST /api/marketing/mensagem-retorno
 // body: { nome, servico, diasAtraso }
+// Exclusivo do módulo de Retorno: consulta clima da cidade, datas comemorativas
+// e início/meio/fim de semana para gerar uma mensagem única com o nome da cliente.
 router.post('/mensagem-retorno', async (req, res) => {
   const { nome, servico, diasAtraso } = req.body;
 
@@ -16,27 +23,15 @@ router.post('/mensagem-retorno', async (req, res) => {
     return res.status(400).json({ erro: 'nome e servico são obrigatórios' });
   }
 
-  const prompt = `
-Você é o assistente de marketing de um salão de beleza. Escreva uma mensagem
-curta e simpática pra mandar no WhatsApp de uma cliente que precisa retornar.
-
-Cliente: ${nome}
-Último serviço: ${servico}
-Dias desde o ideal de retorno: ${diasAtraso ?? 'não informado'}
-
-Regras:
-- No máximo 3 frases.
-- Tom caloroso, não robótico, sem parecer spam.
-- Pode usar 1 emoji, no máximo.
-- Não invente promoções, preços ou descontos.
-- Termine convidando a cliente a agendar.
-`.trim();
-
   try {
-    const resposta = await ai.models.generateContent({ model: MODELO, contents: prompt });
-    res.json({ mensagem: resposta.text.trim() });
+    const resultado = await gerarMensagemUnicaRetorno({
+      nome,
+      servico,
+      diasAtraso: diasAtraso ?? 0,
+    });
+    res.json(resultado);
   } catch (err) {
-    console.error('Erro ao gerar mensagem com Gemini:', err);
+    console.error('Erro ao gerar mensagem de retorno com Gemini:', err);
     res.status(500).json({ erro: 'Falha ao gerar mensagem' });
   }
 });
@@ -77,11 +72,25 @@ router.post('/chat', async (req, res) => {
   }));
 
   try {
-    const resposta = await ai.models.generateContent({
-      model: MODELO,
-      contents,
-      config: { systemInstruction: INSTRUCAO_SISTEMA },
-    });
+    const ai = getAI();
+    let resposta;
+    try {
+      resposta = await ai.models.generateContent({
+        model: MODELO,
+        contents,
+        config: { systemInstruction: INSTRUCAO_SISTEMA },
+      });
+    } catch (e) {
+      if (MODELO !== 'gemini-2.5-flash') {
+        resposta = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents,
+          config: { systemInstruction: INSTRUCAO_SISTEMA },
+        });
+      } else {
+        throw e;
+      }
+    }
     res.json({ resposta: resposta.text.trim() });
   } catch (err) {
     console.error('Erro no chat de marketing com Gemini:', err);

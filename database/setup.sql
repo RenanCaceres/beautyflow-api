@@ -51,6 +51,28 @@ SELECT id, servico_id FROM agendamentos
 WHERE servico_id IS NOT NULL
 ON CONFLICT DO NOTHING;
 
+-- Permite a cliente pedir pra não receber mais mensagens no WhatsApp
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS aceita_whatsapp BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Fila/histórico de mensagens do WhatsApp (WAHA)
+CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
+  id          SERIAL PRIMARY KEY,
+  cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  telefone    VARCHAR(20)  NOT NULL,
+  tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('retorno','marketing','lembrete_dia','lembrete_30m')),
+  referencia  VARCHAR(100) NOT NULL,
+  texto       TEXT         NOT NULL,
+  status      VARCHAR(12)  NOT NULL DEFAULT 'pendente'
+                CHECK (status IN ('pendente','enviando','enviada','erro')),
+  erro        TEXT,
+  criado_em   TIMESTAMP    DEFAULT NOW(),
+  enviado_em  TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
+  ON mensagens_whatsapp (cliente_id, tipo, referencia);
+
+
 -- Dados de exemplo (só insere se estiver vazio)
 DO $$
 BEGIN

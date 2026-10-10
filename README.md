@@ -41,7 +41,10 @@
 
 O **BeautyFlow API** é o núcleo de backend do ecossistema **BeautyFlow**, uma plataforma completa desenhada para a gestão ágil e moderna de salões de beleza, barbearias, manicures e clínicas de estética.
 
-A aplicação fornece uma **API RESTful** robusta, eficiente e segura, conectada a um banco relacional **PostgreSQL**, além de contar com um diferencial inovador: **módulos de inteligência artificial generativa integrados ao Google Gemini**. O sistema resolve problemas reais de micro e pequenas empresas do setor de beleza, facilitando o agendamento de atendimentos, controle financeiro em tempo real e automação humanizada de pós-atendimento para retenção e fidelização de clientes.
+> 📱 **Repositório do Aplicativo Mobile (React Native / Expo):**  
+> 👉 [**github.com/RenanCaceres/beautyflow-mobile**](https://github.com/RenanCaceres/beautyflow-mobile)
+
+A aplicação fornece uma **API RESTful** robusta, eficiente e segura, conectada a um banco relacional **PostgreSQL**, além de contar com um diferencial inovador: **módulos de inteligência artificial generativa integrados ao Google Gemini** e **disparo inteligente via WhatsApp com WAHA (WhatsApp HTTP API) e fila Anti-Ban**. O sistema resolve problemas reais de micro e pequenas empresas do setor de beleza, facilitando o agendamento de atendimentos, controle financeiro em tempo real e automação humanizada de lembretes e pós-atendimento para retenção e fidelização de clientes.
 
 ---
 
@@ -56,28 +59,32 @@ A aplicação fornece uma **API RESTful** robusta, eficiente e segura, conectada
 - Registro de procedimentos com valores tabelados e estimativas de tempo.
 - Parametrização individual de **intervalo ideal de retorno** (em dias), permitindo monitorar o ciclo de vida e a recorrência de cada serviço (ex: limpeza de pele a cada 30 dias, design de sobrancelha a cada 21 dias).
 
-### 📅 Agendamentos & Múltiplos Procedimentos
+### 📅 Agendamentos, Lembretes WAHA & Sincronização de Notificações
 - Criação e acompanhamento de agendamentos com data e hora.
 - Suporte a **múltiplos serviços por agendamento** (relação N:N via tabela associativa `agendamento_servicos`).
 - Controle de ciclo de atendimento com status: `agendado`, `realizado` e `cancelado`.
 - Fluxo de **baixa de atendimento** com flexibilidade para ajustes de valor final negociado e inclusão de observações técnicas.
+- **Lembretes Automáticos via WhatsApp (WAHA)**: Disparo automático no dia do atendimento (a partir das 07:30) e **30 minutos antes** do horário agendado, respeitando a fila Anti-Ban.
+- **Sincronização de Notificações Locais (`/api/agendamentos/sincronizar-notificacoes`)**: Fornece os agendamentos futuros, pendentes de baixa (+12h) e resumo financeiro para o módulo de notificações nativas do app mobile.
 
-### 💰 Fluxo de Caixa & Gestão Financeira
+### 💰 Fluxo de Caixa, Gráficos de Torres & Gestão Financeira
 - **Entradas**: Totalização das receitas baseadas nos atendimentos com status `realizado`.
 - **Saídas**: Registro de despesas com produtos, materiais de consumo e insumos de trabalho.
-- **Relatórios Consolidados**: Consulta em tempo real de entradas, saídas e lucro líquido com agrupamento flexível por **dia**, **mês** ou **ano**.
+- **Relatórios Consolidados & Clientes Atendidas por Mês**: Consulta em tempo real de entradas, saídas, lucro líquido e histórico mensal de **clientes/atendimentos realizados por mês** (`atendimentosPorMes`) para alimentar os gráficos de torres do aplicativo.
 
-### 🔄 Inteligência de Retorno (Customer Retention)
-- Cruzamento automatizado do histórico de atendimento com o ciclo ideal cadastrado em cada procedimento.
+### 🔄 Inteligência de Retorno por Serviço Mais Vencido
+- Avalia individualmente a última vez que a cliente realizou **cada tipo de procedimento** e destaca automaticamente o **serviço mais vencido** da cliente (evitando duplicidade na listagem).
+- Detalhamento completo (`servicos` JSON e endpoint `/api/retorno/cliente/:id/servicos`) com todas as datas em que cada serviço foi realizado e quantos dias estão vencidos.
 - Classificação imediata de clientes por status de retorno:
   - 📌 **Hoje**: clientes cuja data de retorno ideal é a data atual.
   - ⏳ **Próximos 3 dias**: clientes prestes a necessitar de novo atendimento.
   - 📅 **Próximos 7 dias**: planejamento semanal de contato.
   - ⚠️ **Vencidas**: clientes com retorno atrasado para ações de resgate.
 
-### 🤖 Marketing com Inteligência Artificial (Google Gemini)
-- **Mensagens Humanizadas de Retorno**: Geração de copies personalizadas e gentis com **Google Gemini 3.1 Flash Lite**, formatadas especificamente para envio via WhatsApp sem parecer spam ou texto robótico.
-- **Assistente Interativo de Campanhas**: Endpoint de chat conversacional para confecção iterativa de templates promocionais em massa utilizando o marcador `{{nome}}`.
+### 🤖 Marketing com IA (Google Gemini) + Clima + Datas Comemorativas + WAHA Anti-Ban
+- **Mensagens Únicas Contextuais no Módulo de Retorno**: Consulta automática do **clima em tempo real da cidade (Open-Meteo)**, **datas comemorativas próximas** e **momento da semana (início/meio/fim de semana)** para que o **Google Gemini** gere uma mensagem exclusiva para cada cliente com o nome cadastrado na agenda.
+- **Assistente Interativo de Campanhas**: Chat conversacional para criação de mensagens de marketing com seleção de clientes por checkbox no app.
+- **Fila WhatsApp com Range Limit Anti-Ban (`WAHA`)**: Envio gradual em segundo plano com intervalo aleatório configurável (`WA_DELAY_MIN_S` a `WA_DELAY_MAX_S`), simulação de digitação (`startTyping`/`stopTyping`) e priorização inteligente (`lembrete_30m` > `lembrete_dia` > `retorno` > `marketing`).
 
 ---
 
@@ -94,22 +101,28 @@ flowchart TD
     subgraph API["✿ BeautyFlow API (Express & Node.js)"]
         direction TB
         Middlewares["CORS & Body Parsers\nError Handler Central"]
-        Routes["Rotas REST\n(/clientes, /servicos, /agendamentos,\n/caixa, /consumo, /retorno, /marketing)"]
+        Routes["Rotas REST\n(/clientes, /servicos, /agendamentos,\n/caixa, /consumo, /retorno, /marketing, /whatsapp)"]
+        Jobs["Cron Jobs & Fila Anti-Ban\n(Retorno Diário & Lembretes Dia/30min)"]
         Models["Modelos de Domínio & Queries SQL\n(pg Pool Connection)"]
     end
 
-    subgraph External["☁️ Dados & IA"]
+    subgraph External["☁️ Dados, IA, Clima & WhatsApp"]
         direction TB
         Postgres[("PostgreSQL\nBanco Relacional")]
         Gemini["Google Gemini AI\n(@google/genai)"]
+        OpenMeteo["Open-Meteo API\n(Clima da Cidade)"]
+        WAHA["WAHA (WhatsApp HTTP API)\nContainer Docker"]
     end
 
     Mobile -->|HTTP / JSON| Middlewares
     Web -->|HTTP / JSON| Middlewares
     Middlewares --> Routes
     Routes --> Models
+    Routes --> Jobs
     Models -->|Queries Parametrizadas| Postgres
-    Routes -->|Prompts Especializados| Gemini
+    Routes -->|Prompts Contextuais| Gemini
+    Routes -->|Clima Real| OpenMeteo
+    Jobs -->|Range Limit Anti-Ban| WAHA
 ```
 
 ---
@@ -175,6 +188,7 @@ A API segue os padrões RESTful com respostas em formato JSON.
 | Método | Endpoint | Descrição |
 | :--- | :--- | :--- |
 | `GET` | `/api/agendamentos?data=YYYY-MM-DD` | Lista agendamentos filtrados por data |
+| `GET` | `/api/agendamentos/sincronizar-notificacoes` | Retorna agendamentos futuros, pendentes de baixa (+12h) e resumo mensal para notificações locais |
 | `GET` | `/api/agendamentos/:id` | Retorna detalhes do agendamento com lista de serviços |
 | `POST` | `/api/agendamentos` | Cria um agendamento (suporta múltiplos `servico_ids`) |
 | `PUT` | `/api/agendamentos/:id` | Edita os dados e serviços de um agendamento |
@@ -184,7 +198,7 @@ A API segue os padrões RESTful com respostas em formato JSON.
 ### 💰 Fluxo de Caixa & Consumo
 | Método | Endpoint | Descrição |
 | :--- | :--- | :--- |
-| `GET` | `/api/caixa?periodo=mes&mes=10&ano=2026` | Relatório consolidado (entradas, saídas e lucros) |
+| `GET` | `/api/caixa?periodo=mes&mes=10&ano=2026` | Relatório consolidado (entradas, saídas, lucros e `atendimentosPorMes`) |
 | `GET` | `/api/consumo?mes=10&ano=2026` | Lista despesas e materiais de consumo registrados |
 | `POST` | `/api/consumo` | Registra uma nova despesa ou consumo de produto |
 | `DELETE` | `/api/consumo/:id` | Remove um registro de consumo |
@@ -192,17 +206,27 @@ A API segue os padrões RESTful com respostas em formato JSON.
 ### 🔄 Retorno de Clientes (`/api/retorno`)
 | Método | Endpoint | Descrição |
 | :--- | :--- | :--- |
-| `GET` | `/api/retorno?filtro=todas` | Retorna todos os clientes com análise de retorno |
+| `GET` | `/api/retorno?filtro=todas` | Retorna clientes com o serviço mais vencido e lista `servicos` realizados |
 | `GET` | `/api/retorno?filtro=hoje` | Clientes que devem retornar hoje |
 | `GET` | `/api/retorno?filtro=3dias` | Clientes com retorno ideal nos próximos 3 dias |
 | `GET` | `/api/retorno?filtro=7dias` | Clientes com retorno ideal nos próximos 7 dias |
 | `GET` | `/api/retorno?filtro=vencidas` | Clientes com prazo de retorno em atraso |
+| `GET` | `/api/retorno/cliente/:id/servicos` | Histórico detalhado de cada procedimento realizado pela cliente |
 
 ### 🤖 Marketing & Inteligência Artificial (`/api/marketing`)
 | Método | Endpoint | Descrição |
 | :--- | :--- | :--- |
-| `POST` | `/api/marketing/mensagem-retorno` | Gera mensagem humanizada para WhatsApp com base no cliente e serviço |
+| `POST` | `/api/marketing/mensagem-retorno` | Gera mensagem única no Gemini com clima da cidade, datas comemorativas e momento da semana |
 | `POST` | `/api/marketing/chat` | Chat interativo com Gemini para criação de templates com `{{nome}}` |
+
+### 💬 WhatsApp & Fila WAHA Anti-Ban (`/api/whatsapp`)
+| Método | Endpoint | Descrição |
+| :--- | :--- | :--- |
+| `GET` | `/api/whatsapp/status` | Status da sessão WAHA e contadores da fila Anti-Ban |
+| `POST` | `/api/whatsapp/marketing/disparar` | Enfileira campanha de marketing para as clientes selecionadas com range limit |
+| `POST` | `/api/whatsapp/retorno/disparar-hoje` | Gera mensagens únicas no Gemini e enfileira no WAHA para clientes de retorno |
+| `POST` | `/api/whatsapp/retorno/disparar-cliente` | Gera/enfileira mensagem de retorno individual via WAHA |
+| `POST` | `/api/whatsapp/agendamentos/disparar-lembretes` | Executa verificação imediata de lembretes do dia e de 30 minutos antes |
 
 ---
 
@@ -213,6 +237,7 @@ Certifique-se de ter instalado em seu ambiente:
 - **Node.js** (versão 18.0.0 ou superior, recomendado v22+)
 - **NPM** ou **Yarn**
 - **PostgreSQL** instalado localmente ou rodando via container Docker
+- **Docker** (opcional, para rodar o container do **WAHA - WhatsApp HTTP API**)
 - Chave de API do **Google Gemini** ([Google AI Studio](https://aistudio.google.com/))
 
 ---
@@ -248,6 +273,21 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 
 # Chave de API para as funcionalidades com IA do Google Gemini
 GEMINI_API_KEY=sua_chave_do_google_gemini_aqui
+
+# Cidade para consulta de clima em tempo real (Open-Meteo) no módulo de Retorno
+CIDADE_NOME=Cornélio Procópio - PR
+CIDADE_LAT=-23.1811
+CIDADE_LON=-50.6469
+
+# Integração WAHA (https://waha.devlike.pro) e Range Limit Anti-Ban
+WAHA_URL=http://localhost:3001
+WAHA_API_KEY=sua_chave_waha_aqui
+WAHA_SESSION=default
+WA_DELAY_MIN_S=25
+WA_DELAY_MAX_S=60
+WA_LIMITE_24H=100
+WA_RETORNO_MAX_ATRASO_DIAS=7
+WA_RETORNO_CRON=0 10 * * *
 ```
 
 ### 4. Configurar o Banco de Dados

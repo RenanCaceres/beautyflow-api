@@ -102,6 +102,14 @@ const Agendamentos = {
       );
     }
 
+    // Remove lembretes pendentes do horário antigo caso tenha mudado a data/hora
+    await query(
+      `DELETE FROM mensagens_whatsapp
+       WHERE status = 'pendente'
+         AND (referencia LIKE $1 OR referencia LIKE $2)`,
+      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+    ).catch(() => {});
+
     return this.buscarPorId(id);
   },
 
@@ -125,12 +133,55 @@ const Agendamentos = {
       await query('UPDATE agendamentos SET servico_id=$1 WHERE id=$2', [ids[0], parseInt(id)]);
     }
 
+    // Se deu baixa (realizado ou cancelado), remove lembretes de agendamento ainda pendentes na fila
+    await query(
+      `DELETE FROM mensagens_whatsapp
+       WHERE status = 'pendente'
+         AND (referencia LIKE $1 OR referencia LIKE $2)`,
+      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+    ).catch(() => {});
+
     return this.buscarPorId(id);
   },
 
   async excluir(id) {
+    await query(
+      `DELETE FROM mensagens_whatsapp
+       WHERE status = 'pendente'
+         AND (referencia LIKE $1 OR referencia LIKE $2)`,
+      [`ag-dia-${parseInt(id)}-%`, `ag-30m-${parseInt(id)}-%`]
+    ).catch(() => {});
     await query('DELETE FROM agendamentos WHERE id=$1', [parseInt(id)]);
+  },
+
+  async listarParaNotificacoes() {
+    const r = await query(`
+      SELECT a.id, a.data_hora, a.status, a.observacao, a.valor_final,
+             c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
+             a.servico_id,
+             sl.nome  AS servico_nome,
+             sl.valor AS servico_valor,
+             COALESCE(
+               JSON_AGG(
+                 JSON_BUILD_OBJECT('id', sv.id, 'nome', sv.nome, 'valor', sv.valor)
+                 ORDER BY sv.nome
+               ) FILTER (WHERE sv.id IS NOT NULL),
+               '[]'
+             ) AS servicos
+      FROM agendamentos a
+      JOIN clientes c ON c.id = a.cliente_id
+      LEFT JOIN servicos sl ON sl.id = a.servico_id
+      LEFT JOIN agendamento_servicos ags ON ags.agendamento_id = a.id
+      LEFT JOIN servicos sv ON sv.id = ags.servico_id
+      WHERE a.status = 'agendado'
+        AND a.data_hora::date >= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date - INTERVAL '14 days')
+        AND a.data_hora::date <= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '30 days')
+      GROUP BY a.id, c.id, sl.id
+      ORDER BY a.data_hora ASC
+    `);
+    return r.rows;
   },
 };
 
 module.exports = Agendamentos;
+

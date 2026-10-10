@@ -104,5 +104,22 @@ async function queryTotais(periodo, params) {
   return { entradas, saidas, lucro: entradas - saidas };
 }
 
-module.exports = { queryEntradas, querySaidas, queryTotais };
+async function queryAtendimentosPorMes(ano) {
+  const r = await query(
+    `SELECT
+       EXTRACT(MONTH FROM a.data_hora)::int AS mes,
+       COUNT(a.id)::int AS atendimentos,
+       COUNT(DISTINCT a.cliente_id)::int AS clientes
+     FROM agendamentos a
+     WHERE a.status = 'realizado'
+       AND EXTRACT(YEAR FROM a.data_hora) = $1
+     GROUP BY EXTRACT(MONTH FROM a.data_hora)
+     ORDER BY 1`,
+    [ano]
+  );
+  return r.rows;
+}
+
+module.exports = { queryEntradas, querySaidas, queryTotais, queryAtendimentosPorMes };
+
 

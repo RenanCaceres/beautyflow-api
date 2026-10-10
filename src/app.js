@@ -32,6 +32,7 @@ app.use('/api/consumo',      require('./routes/consumo'));
 app.use('/api/caixa',        require('./routes/caixa'));
 app.use('/api/retorno',      require('./routes/retorno'));
 app.use('/api/marketing',   require('./routes/marketing'));
+app.use('/api/whatsapp',    require('./routes/whatsapp'));
 
 // ── Error handler ─────────────────────────────────────────────
 app.use((err, req, res, next) => {
@@ -42,4 +43,8 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✿ BeautyFlow API rodando em http://0.0.0.0:${PORT}`);
+  require('./services/filaWhatsapp').iniciar();
+  require('./jobs/retornoAutomatico').iniciar();
+  require('./jobs/lembretesAgendamento').iniciar();
 });
+
