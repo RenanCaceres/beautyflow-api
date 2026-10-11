@@ -87,21 +87,32 @@ async function enfileirarRetornos({ filtro = null, clienteIds = null } = {}) {
       indiceVariacao: i,
     });
 
+    const statusInicial = ehAutomatico ? 'aprovacao' : 'pendente';
+
     const r = await query(
-      `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto)
-       VALUES ($1, $2, 'retorno', $3, $4)
+      `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto, status)
+       VALUES ($1, $2, 'retorno', $3, $4, $5)
        ON CONFLICT (cliente_id, tipo, referencia) DO NOTHING`,
-      [row.id, row.telefone, ref, mensagem]
+      [row.id, row.telefone, ref, mensagem, statusInicial]
     );
     novos += r.rowCount;
   }
 
-  if (novos > 0) {
+  if (novos > 0 && !ehAutomatico) {
     acordarFila();
   }
 
-  console.log(`✿ [Retorno WAHA] Enfileirados: ${novos} | Já enviados/na fila: ${jaEnfileirados}`);
-  return { enfileiradas: novos, ignoradas: jaEnfileirados, totalAnalisadas: candidatos.length };
+  console.log(
+    ehAutomatico
+      ? `✿ [Retorno WAHA] ${novos} mensagem(ns) preparada(s) aguardando confirmação no app | Já existentes: ${jaEnfileirados}`
+      : `✿ [Retorno WAHA] Enfileirados: ${novos} | Já enviados/na fila: ${jaEnfileirados}`
+  );
+  return {
+    enfileiradas: novos,
+    aguardandoAprovacao: ehAutomatico ? novos : 0,
+    ignoradas: jaEnfileirados,
+    totalAnalisadas: candidatos.length,
+  };
 }
 
 function iniciar() {

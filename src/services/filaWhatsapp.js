@@ -30,7 +30,7 @@ async function garantirTabela() {
       referencia  VARCHAR(100) NOT NULL,
       texto       TEXT         NOT NULL,
       status      VARCHAR(12)  NOT NULL DEFAULT 'pendente'
-                    CHECK (status IN ('pendente','enviando','enviada','erro')),
+                    CHECK (status IN ('aprovacao','pendente','enviando','enviada','erro')),
       erro        TEXT,
       criado_em   TIMESTAMP    DEFAULT NOW(),
       enviado_em  TIMESTAMP
@@ -40,6 +40,11 @@ async function garantirTabela() {
     ALTER TABLE mensagens_whatsapp DROP CONSTRAINT IF EXISTS mensagens_whatsapp_tipo_check;
     ALTER TABLE mensagens_whatsapp ADD CONSTRAINT mensagens_whatsapp_tipo_check
       CHECK (tipo IN ('confirmacao','retorno','marketing','lembrete_dia','lembrete_30m'));
+  `);
+  await query(`
+    ALTER TABLE mensagens_whatsapp DROP CONSTRAINT IF EXISTS mensagens_whatsapp_status_check;
+    ALTER TABLE mensagens_whatsapp ADD CONSTRAINT mensagens_whatsapp_status_check
+      CHECK (status IN ('aprovacao','pendente','enviando','enviada','erro'));
   `);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
@@ -52,10 +57,10 @@ async function garantirTabela() {
       criado_em TIMESTAMP DEFAULT NOW()
     );
   `);
-  // Limpa da fila eventuais mensagens de retorno pendentes de clientes que já têm horário agendado no futuro
+  // Limpa da fila eventuais mensagens de retorno pendentes/em aprovação de clientes que já têm horário agendado no futuro
   await query(`
     DELETE FROM mensagens_whatsapp m
-    WHERE m.status = 'pendente'
+    WHERE m.status IN ('pendente', 'aprovacao')
       AND m.tipo = 'retorno'
       AND EXISTS (
         SELECT 1 FROM agendamentos a

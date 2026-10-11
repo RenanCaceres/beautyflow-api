@@ -25,14 +25,17 @@ router.get('/sincronizar-notificacoes', async (req, res, next) => {
     const mesAnt = mesAtual === 1 ? 12 : mesAtual - 1;
     const anoAnt = mesAtual === 1 ? anoAtual - 1 : anoAtual;
 
-    const [agendamentos, totaisAtual, totaisAnterior] = await Promise.all([
+    const { query } = require('../database');
+    const [agendamentos, totaisAtual, totaisAnterior, aprovRes] = await Promise.all([
       Agendamentos.listarParaNotificacoes(),
       queryTotais('mes', { mes: mesAtual, ano: anoAtual }),
       queryTotais('mes', { mes: mesAnt, ano: anoAnt }),
+      query(`SELECT COUNT(*)::int AS total FROM mensagens_whatsapp WHERE status = 'aprovacao' AND tipo = 'retorno'`).catch(() => ({ rows: [{ total: 0 }] })),
     ]);
 
     res.json({
       agendamentos,
+      retornosAguardandoAprovacao: aprovRes?.rows?.[0]?.total || 0,
       fechamentoMesAtual: {
         mes: mesAtual,
         ano: anoAtual,

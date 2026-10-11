@@ -28,21 +28,85 @@ router.get('/status', async (req, res) => {
   }
 });
 
-// GET /api/whatsapp/fila -> resumo da fila (pendente / enviando / enviada / erro)
+// GET /api/whatsapp/fila -> resumo da fila (aprovacao / pendente / enviando / enviada / erro) + itens aguardando confirmação
 router.get('/fila', async (req, res, next) => {
   try {
-    const r = await query(
-      `SELECT status, COUNT(*)::int AS total FROM mensagens_whatsapp GROUP BY status`
-    );
-    const contadores = { pendente: 0, enviando: 0, enviada: 0, erro: 0 };
+    const [r, aprov] = await Promise.all([
+      query(`SELECT status, COUNT(*)::int AS total FROM mensagens_whatsapp GROUP BY status`),
+      query(`
+        SELECT m.id, m.cliente_id, c.nome AS cliente_nome, m.telefone, m.texto, m.referencia, m.criado_em
+        FROM mensagens_whatsapp m
+        JOIN clientes c ON c.id = m.cliente_id
+        WHERE m.status = 'aprovacao'
+          AND m.tipo = 'retorno'
+          AND NOT EXISTS (
+            SELECT 1 FROM agendamentos a
+            WHERE a.cliente_id = m.cliente_id
+              AND a.status = 'agendado'
+              AND a.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+          )
+        ORDER BY c.nome ASC
+      `),
+    ]);
+    const contadores = { aprovacao: 0, pendente: 0, enviando: 0, enviada: 0, erro: 0 };
     for (const row of r.rows) {
       contadores[row.status] = row.total;
     }
     res.json({
       contadores,
+      aguardandoAprovacao: aprov.rows,
       itens: r.rows,
       config: obterConfigFila(),
     });
+  } catch (e) { next(e); }
+});
+
+// POST /api/whatsapp/retorno/aprovar -> Confirma o envio das mensagens automáticas de retorno
+// body: { ids?: [1, 2, 3] } (se passar ids, aprova apenas as selecionadas e descarta as desmarcadas)
+router.post('/retorno/aprovar', async (req, res, next) => {
+  try {
+    const { ids } = req.body || {};
+    let aprovadas = 0;
+
+    if (Array.isArray(ids) && ids.length > 0) {
+      const idsNum = ids.map((id) => parseInt(id, 10)).filter(Boolean);
+      const r = await query(
+        `UPDATE mensagens_whatsapp
+         SET status = 'pendente'
+         WHERE status = 'aprovacao' AND tipo = 'retorno' AND id = ANY($1::int[])`,
+        [idsNum]
+      );
+      aprovadas = r.rowCount;
+      // Remove as que foram desmarcadas pela usuária neste lote
+      await query(
+        `DELETE FROM mensagens_whatsapp WHERE status = 'aprovacao' AND tipo = 'retorno'`
+      );
+    } else {
+      const r = await query(
+        `UPDATE mensagens_whatsapp SET status = 'pendente' WHERE status = 'aprovacao' AND tipo = 'retorno'`
+      );
+      aprovadas = r.rowCount;
+    }
+
+    if (aprovadas > 0) {
+      acordarFila();
+    }
+
+    res.json({
+      ok: true,
+      aprovadas,
+      config: obterConfigFila(),
+    });
+  } catch (e) { next(e); }
+});
+
+// POST /api/whatsapp/retorno/rejeitar -> Cancela o lote de retorno que estava aguardando confirmação
+router.post('/retorno/rejeitar', async (req, res, next) => {
+  try {
+    const r = await query(
+      `DELETE FROM mensagens_whatsapp WHERE status = 'aprovacao' AND tipo = 'retorno'`
+    );
+    res.json({ ok: true, removidas: r.rowCount });
   } catch (e) { next(e); }
 });
 

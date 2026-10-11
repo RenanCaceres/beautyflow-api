@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
   referencia  VARCHAR(100) NOT NULL,
   texto       TEXT         NOT NULL,
   status      VARCHAR(12)  NOT NULL DEFAULT 'pendente'
-                CHECK (status IN ('pendente','enviando','enviada','erro')),
+                CHECK (status IN ('aprovacao','pendente','enviando','enviada','erro')),
   erro        TEXT,
   criado_em   TIMESTAMP    DEFAULT NOW(),
   enviado_em  TIMESTAMP
