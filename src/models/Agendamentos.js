@@ -129,6 +129,12 @@ const Agendamentos = {
 
     const agendamentoCriado = await this.buscarPorId(agId);
 
+    // Como a cliente acabou de agendar um horário, remove qualquer mensagem de retorno pendente para ela
+    await query(
+      `DELETE FROM mensagens_whatsapp WHERE cliente_id = $1 AND tipo = 'retorno' AND status = 'pendente'`,
+      [parseInt(cliente_id)]
+    ).catch(() => {});
+
     // Enfileira mensagem de confirmação no WhatsApp (com range limit via WAHA)
     await enfileirarConfirmacaoWhatsapp(agendamentoCriado, false).catch((e) => {
       console.error('Aviso: não foi possível enfileirar confirmação de agendamento:', e.message);
@@ -243,6 +249,32 @@ const Agendamentos = {
       ORDER BY a.data_hora ASC
     `);
     return r.rows;
+  },
+
+  async listarDiasIndisponiveis() {
+    const r = await query(`
+      SELECT TO_CHAR(data, 'YYYY-MM-DD') AS data, motivo
+      FROM dias_indisponiveis
+      WHERE data >= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date - INTERVAL '30 days')
+      ORDER BY data ASC
+    `);
+    return r.rows;
+  },
+
+  async marcarDiaIndisponivel(data, motivo) {
+    const dataIso = String(data || '').slice(0, 10);
+    await query(
+      `INSERT INTO dias_indisponiveis (data, motivo)
+       VALUES ($1::date, $2)
+       ON CONFLICT (data) DO UPDATE SET motivo = EXCLUDED.motivo`,
+      [dataIso, motivo || 'Indisponível / Folga']
+    );
+    return { data: dataIso, motivo: motivo || 'Indisponível / Folga' };
+  },
+
+  async removerDiaIndisponivel(data) {
+    const dataIso = String(data || '').slice(0, 10);
+    await query(`DELETE FROM dias_indisponiveis WHERE data = $1::date`, [dataIso]);
   },
 };
 

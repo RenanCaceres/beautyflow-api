@@ -24,3 +24,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
 
 -- Permite a cliente pedir pra não receber mais mensagens
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS aceita_whatsapp BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- Dias em que a profissional está indisponível / de folga
+CREATE TABLE IF NOT EXISTS dias_indisponiveis (
+  data      DATE PRIMARY KEY,
+  motivo    VARCHAR(120),
+  criado_em TIMESTAMP DEFAULT NOW()
+);

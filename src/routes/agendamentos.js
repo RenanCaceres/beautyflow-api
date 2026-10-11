@@ -47,6 +47,30 @@ router.get('/sincronizar-notificacoes', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/agendamentos/indisponiveis — lista dias em que a profissional está indisponível / de folga
+router.get('/indisponiveis', async (req, res, next) => {
+  try {
+    res.json(await Agendamentos.listarDiasIndisponiveis());
+  } catch (e) { next(e); }
+});
+
+// POST /api/agendamentos/indisponiveis — marca um dia como indisponível ({ data: 'YYYY-MM-DD', motivo })
+router.post('/indisponiveis', async (req, res, next) => {
+  try {
+    const { data, motivo } = req.body || {};
+    if (!data) return res.status(400).json({ erro: 'Data é obrigatória' });
+    res.status(201).json(await Agendamentos.marcarDiaIndisponivel(data, motivo));
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/agendamentos/indisponiveis/:data — desbloqueia um dia
+router.delete('/indisponiveis/:data', async (req, res, next) => {
+  try {
+    await Agendamentos.removerDiaIndisponivel(req.params.data);
+    res.status(204).end();
+  } catch (e) { next(e); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const a = await Agendamentos.buscarPorId(req.params.id);

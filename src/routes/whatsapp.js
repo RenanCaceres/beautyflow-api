@@ -64,6 +64,23 @@ router.post('/retorno', async (req, res, next) => {
     }
 
     const cliente = cli.rows[0];
+
+    // Verifica se a cliente já possui agendamento marcado para hoje ou futuro
+    const jaAgendada = await query(
+      `SELECT data_hora FROM agendamentos
+       WHERE cliente_id = $1
+         AND status = 'agendado'
+         AND data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+       ORDER BY data_hora ASC
+       LIMIT 1`,
+      [cliente.id]
+    );
+    if (jaAgendada.rowCount > 0) {
+      return res.status(409).json({
+        erro: 'Esta cliente já possui um horário agendado no futuro e não precisa de mensagem de retorno.',
+      });
+    }
+
     const ref = ultimoAtendimento
       ? montarReferencia(servicoId, ultimoAtendimento)
       : `manual-${Date.now()}`;

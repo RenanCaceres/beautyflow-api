@@ -173,9 +173,68 @@ function obterDatasComemorativasProximas(data = obterDataBrasil()) {
   return encontradas.length > 0 ? encontradas.join('; ') : 'Nenhuma data comemorativa imediata nos próximos dias';
 }
 
+async function obterDisponibilidadeAgenda(dataBase = obterDataBrasil()) {
+  const diasNomes = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  let bloqueadosSet = new Map();
+
+  try {
+    const { query } = require('../database');
+    const r = await query(`
+      SELECT TO_CHAR(data, 'YYYY-MM-DD') AS data_iso, motivo
+      FROM dias_indisponiveis
+      WHERE data >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+        AND data <= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '15 days')
+      ORDER BY data ASC
+    `);
+    for (const row of r.rows) {
+      bloqueadosSet.set(row.data_iso, row.motivo || 'Indisponível');
+    }
+  } catch {
+    // Se a tabela ainda não existir, segue sem bloqueios
+  }
+
+  const indisponiveisLista = [];
+  const disponiveisLista = [];
+
+  for (let i = 0; i <= 10; i++) {
+    const dt = new Date(dataBase.getFullYear(), dataBase.getMonth(), dataBase.getDate() + i);
+    const ano = dt.getFullYear();
+    const mes = String(dt.getMonth() + 1).padStart(2, '0');
+    const dia = String(dt.getDate()).padStart(2, '0');
+    const iso = `${ano}-${mes}-${dia}`;
+    const br  = `${dia}/${mes}`;
+    const dow = dt.getDay();
+    const nomeDia = diasNomes[dow];
+    const rotuloRelativo = i === 0 ? 'Hoje' : i === 1 ? 'Amanhã' : nomeDia;
+
+    if (bloqueadosSet.has(iso)) {
+      indisponiveisLista.push(`${rotuloRelativo} (${br} - ${bloqueadosSet.get(iso)})`);
+    } else if (dow === 0) {
+      // Domingo por padrão não é sugerido como dia útil de agendamento
+      indisponiveisLista.push(`${rotuloRelativo} (${br} - Domingo)`);
+    } else if (i >= 1 && disponiveisLista.length < 4) {
+      disponiveisLista.push(`${nomeDia} (${br})`);
+    }
+  }
+
+  return {
+    diasIndisponiveis:
+      indisponiveisLista.length > 0
+        ? indisponiveisLista.join(', ')
+        : 'Nenhum dia útil bloqueado nos próximos dias',
+    proximosDiasDisponiveis:
+      disponiveisLista.length > 0
+        ? disponiveisLista.join(', ')
+        : 'Consulte a agenda',
+  };
+}
+
 async function montarContextoDia() {
   const data = obterDataBrasil();
-  const clima = await obterClimaCidade();
+  const [clima, disponibilidade] = await Promise.all([
+    obterClimaCidade(),
+    obterDisponibilidadeAgenda(data),
+  ]);
   const semana = obterMomentoSemana(data);
   const datasComemorativas = obterDatasComemorativasProximas(data);
 
@@ -184,6 +243,8 @@ async function montarContextoDia() {
     diaSemana: semana.descricao,
     periodoSemana: semana.periodo,
     datasComemorativas,
+    diasIndisponiveis: disponibilidade.diasIndisponiveis,
+    proximosDiasDisponiveis: disponibilidade.proximosDiasDisponiveis,
   };
 }
 
@@ -192,7 +253,7 @@ const ANGULOS_CRIATIVOS = [
   'Comece mencionando o momento da semana (início, meio ou fim de semana) como um ótimo pretexto para se cuidar.',
   'Se houver data comemorativa ou feriado próximo, use isso como gancho principal; caso contrário, combine o dia da semana com o clima.',
   'Use um tom bem acolhedor de quem lembrou da cliente com carinho hoje, citando sutilmente o dia da semana ou o tempo lá fora.',
-  'Destaque como é bom tirar uma pausa na rotina desta semana (mencionando o clima ou o dia) para renovar o procedimento.',
+  'Destaque como é bom tirar uma pausa na rotina (mencionando o clima ou o dia) para renovar o procedimento.',
 ];
 
 async function gerarConteudoGemini(prompt) {
@@ -217,6 +278,7 @@ async function gerarConteudoGemini(prompt) {
  * - Clima atual da cidade
  * - Datas comemorativas próximas
  * - Momento da semana (início / meio / fim de semana)
+ * - Disponibilidade real da agenda (dias indisponíveis vs próximos dias livres)
  */
 async function gerarMensagemUnicaRetorno({ nome, servico, diasAtraso = 0, indiceVariacao = null }) {
   const ctx = await montarContextoDia();
@@ -248,6 +310,10 @@ CONTEXTO REAL DE HOJE:
 - Momento da semana: ${ctx.diaSemana}
 - Datas comemorativas / feriados próximos: ${ctx.datasComemorativas}
 
+DISPONIBILIDADE DA PROFISSIONAL NA AGENDA:
+- DIAS INDISPONÍVEIS (NÃO ATENDE NESTES DIAS): ${ctx.diasIndisponiveis}
+- Próximos dias com agenda aberta: ${ctx.proximosDiasDisponiveis}
+
 DIRETRIZ DE VARIAÇÃO ÚNICA (ID #${sementeAleatoria}):
 - ${angulo}
 
@@ -258,8 +324,9 @@ REGRAS OBRIGATÓRIAS:
 4. Tom caloroso, humano e simpático (nunca pareça mensagem automática/robótica nem spam).
 5. Use no máximo 1 ou 2 emojis.
 6. NÃO invente descontos, promoções ou preços.
-7. Termine convidando-a para escolher um horário na agenda.
-8. Responda APENAS com o texto final da mensagem, sem aspas e sem explicações.
+7. PROIBIDO dizer "agendar amanhã" ou "agendar hoje", e PROIBIDO sugerir qualquer dia listado em DIAS INDISPONÍVEIS (${ctx.diasIndisponiveis}).
+8. Termine convidando-a de forma aberta para escolher o melhor dia e horário disponível na agenda (ex: "Me chama aqui para vermos um horário na agenda para você").
+9. Responda APENAS com o texto final da mensagem, sem aspas e sem explicações.
 `.trim();
 
   try {
@@ -279,7 +346,7 @@ REGRAS OBRIGATÓRIAS:
     console.error('Erro ao gerar mensagem única no Gemini, usando fallback contextual:', err.message);
     const msgFallback =
       `Oi, ${nomeAgenda}! Tudo bem? Nesse ${ctx.periodoSemana}, passei para lembrar que já deu o prazo do seu retorno de ${servico} ✨ ` +
-      `Que tal separarmos um horário na agenda para você se cuidar?`;
+      `Me chama aqui para vermos o melhor dia e horário disponível na agenda para você!`;
     return { mensagem: msgFallback, contexto: ctx, fallback: true };
   }
 }
@@ -288,6 +355,7 @@ module.exports = {
   obterClimaCidade,
   obterMomentoSemana,
   obterDatasComemorativasProximas,
+  obterDisponibilidadeAgenda,
   montarContextoDia,
   gerarMensagemUnicaRetorno,
 };

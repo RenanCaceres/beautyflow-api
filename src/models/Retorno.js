@@ -19,7 +19,7 @@ const SQL_BASE = `
       s.intervalo_retorno_dias,
       sr.data_hora AS ultimo_atendimento,
       (sr.data_hora::date + s.intervalo_retorno_dias) AS data_retorno_ideal,
-      ((sr.data_hora::date + s.intervalo_retorno_dias) - CURRENT_DATE) AS dias_para_retorno
+      ((sr.data_hora::date + s.intervalo_retorno_dias) - (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS dias_para_retorno
     FROM servicos_realizados sr
     JOIN servicos s ON s.id = sr.servico_id
     ORDER BY sr.cliente_id, sr.servico_id, sr.data_hora DESC
@@ -77,6 +77,13 @@ async function listar(filtro = 'todas') {
       ORDER BY u.dias_para_retorno ASC, u.ultimo_atendimento DESC
       LIMIT 1
     ) mais_vencido ON true
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM agendamentos af
+      WHERE af.cliente_id = c.id
+        AND af.status = 'agendado'
+        AND af.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+    )
     ORDER BY mais_vencido.dias_para_retorno ASC, c.nome ASC
   `);
 

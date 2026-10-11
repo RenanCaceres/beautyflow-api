@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
   ON mensagens_whatsapp (cliente_id, tipo, referencia);
 
+-- Dias em que a profissional está indisponível / de folga
+CREATE TABLE IF NOT EXISTS dias_indisponiveis (
+  data      DATE PRIMARY KEY,
+  motivo    VARCHAR(120),
+  criado_em TIMESTAMP DEFAULT NOW()
+);
+
 
 -- Dados de exemplo (só insere se estiver vazio)
 DO $$

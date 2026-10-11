@@ -18,11 +18,37 @@ function montarReferencia(servicoId, ultimoAtendimento) {
  * e momento da semana) para clientes com retorno vencendo no dia ou em atraso.
  */
 async function enfileirarRetornos({ filtro = null, clienteIds = null } = {}) {
-  const bloqueados = await query(`SELECT id FROM clientes WHERE aceita_whatsapp = FALSE`);
+  const ehAutomatico = !filtro && (!Array.isArray(clienteIds) || clienteIds.length === 0);
+
+  if (ehAutomatico) {
+    // Se hoje estiver marcado como dia indisponível / folga, não dispara retorno automático hoje
+    const diaBloqueado = await query(`
+      SELECT motivo FROM dias_indisponiveis
+      WHERE data = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+      LIMIT 1
+    `).catch(() => ({ rowCount: 0 }));
+
+    if (diaBloqueado.rowCount > 0) {
+      console.log(`✿ [Retorno WAHA] Hoje está marcado como indisponível (${diaBloqueado.rows[0].motivo}). Disparo automático pulado.`);
+      return { enfileiradas: 0, ignoradas: 0, totalAnalisadas: 0, diaIndisponivel: true };
+    }
+  }
+
+  const [bloqueados, agendadasFuturo] = await Promise.all([
+    query(`SELECT id FROM clientes WHERE aceita_whatsapp = FALSE`),
+    query(`
+      SELECT DISTINCT cliente_id
+      FROM agendamentos
+      WHERE status = 'agendado'
+        AND data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+    `),
+  ]);
+
   const naoQuer = new Set(bloqueados.rows.map((r) => r.id));
+  const jaTemAgendamentoFuturo = new Set(agendadasFuturo.rows.map((r) => r.cliente_id));
 
   const lista = await listar(filtro || 'todas');
-  let candidatos = lista;
+  let candidatos = lista.filter((row) => !jaTemAgendamentoFuturo.has(row.id));
 
   if (Array.isArray(clienteIds) && clienteIds.length > 0) {
     const idsSet = new Set(clienteIds.map(Number));
@@ -39,7 +65,7 @@ async function enfileirarRetornos({ filtro = null, clienteIds = null } = {}) {
 
   for (let i = 0; i < candidatos.length; i++) {
     const row = candidatos[i];
-    if (naoQuer.has(row.id)) continue;
+    if (naoQuer.has(row.id) || jaTemAgendamentoFuturo.has(row.id)) continue;
 
     const ref = montarReferencia(row.servico_id, row.ultimo_atendimento);
 
@@ -53,7 +79,7 @@ async function enfileirarRetornos({ filtro = null, clienteIds = null } = {}) {
       continue;
     }
 
-    // Gera mensagem única no Gemini considerando clima da cidade, datas comemorativas e dia da semana
+    // Gera mensagem única no Gemini considerando clima da cidade, datas comemorativas, dia da semana e disponibilidade da agenda
     const { mensagem } = await gerarMensagemUnicaRetorno({
       nome: row.nome,
       servico: row.servico_nome,

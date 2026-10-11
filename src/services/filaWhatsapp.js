@@ -45,6 +45,25 @@ async function garantirTabela() {
     CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
       ON mensagens_whatsapp (cliente_id, tipo, referencia);
   `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS dias_indisponiveis (
+      data      DATE PRIMARY KEY,
+      motivo    VARCHAR(120),
+      criado_em TIMESTAMP DEFAULT NOW()
+    );
+  `);
+  // Limpa da fila eventuais mensagens de retorno pendentes de clientes que já têm horário agendado no futuro
+  await query(`
+    DELETE FROM mensagens_whatsapp m
+    WHERE m.status = 'pendente'
+      AND m.tipo = 'retorno'
+      AND EXISTS (
+        SELECT 1 FROM agendamentos a
+        WHERE a.cliente_id = m.cliente_id
+          AND a.status = 'agendado'
+          AND a.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+      )
+  `);
 }
 
 async function proximaPendente() {
@@ -91,6 +110,24 @@ async function ciclo() {
       const msg = await proximaPendente();
       if (msg) {
         try {
+          // Antes de enviar mensagem de retorno, confere se a cliente não tem agendamento futuro marcado
+          if (msg.tipo === 'retorno') {
+            const temFuturo = await query(
+              `SELECT 1 FROM agendamentos
+               WHERE cliente_id = $1
+                 AND status = 'agendado'
+                 AND data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+               LIMIT 1`,
+              [msg.cliente_id]
+            );
+            if (temFuturo.rowCount > 0) {
+              await query(`DELETE FROM mensagens_whatsapp WHERE id = $1`, [msg.id]);
+              console.log(`✿ [WAHA] Retorno #${msg.id} cancelado: cliente #${msg.cliente_id} já possui agendamento futuro.`);
+              espera = 1000;
+              return;
+            }
+          }
+
           const st = await waha.statusSessao();
           if (st !== 'WORKING') throw new Error('SESSAO_OFF:' + st);
 
