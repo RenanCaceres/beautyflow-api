@@ -32,6 +32,18 @@ async function statusSessao() {
   return s.status; // WORKING = conectado
 }
 
+async function reiniciarSessao() {
+  try {
+    await req(`/api/sessions/${SESSION}/stop`, { method: 'POST' });
+  } catch {}
+  await sleep(1500);
+  try {
+    await req(`/api/sessions/${SESSION}/start`, { method: 'POST' });
+  } catch (e) {
+    console.error(`Erro ao reiniciar sessão WAHA ${SESSION}:`, e.message);
+  }
+}
+
 // Confirma que o número tem WhatsApp e devolve o chatId certo
 // (resolve o problema do 9º dígito dos números antigos no Brasil)
 async function resolverChatId(tel) {
@@ -57,4 +69,5 @@ async function enviarTexto(tel, texto) {
   return req('/api/sendText', { method: 'POST', body: body({ text: texto }) });
 }
 
-module.exports = { statusSessao, enviarTexto, normalizar };
+module.exports = { statusSessao, reiniciarSessao, enviarTexto, normalizar };
+

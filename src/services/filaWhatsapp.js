@@ -147,9 +147,17 @@ async function ciclo() {
           console.log(`✿ [WAHA] Mensagem #${msg.id} enviada (${msg.telefone}). Próximo envio em ${segundosAleatorios}s`);
         } catch (e) {
           if (String(e.message).startsWith('SESSAO_OFF')) {
-            // WhatsApp desconectado: devolve pra fila e espera 1 min
+            const statusOff = String(e.message).replace('SESSAO_OFF:', '').trim();
+            // Se a sessão caiu para FAILED ou STOPPED (ex: instabilidade de rede ou reinício), tenta religar automaticamente
+            if (statusOff === 'FAILED' || statusOff === 'STOPPED') {
+              console.warn(`⚠ Sessão WAHA em '${statusOff}'. Tentando reconectar automaticamente...`);
+              waha.reiniciarSessao().catch((err) =>
+                console.error('Falha ao tentar auto-recuperar sessão WAHA:', err.message)
+              );
+            }
+            // WhatsApp desconectado: devolve pra fila e espera 30s
             await query(`UPDATE mensagens_whatsapp SET status='pendente' WHERE id=$1`, [msg.id]);
-            espera = 60 * 1000;
+            espera = 30 * 1000;
             console.warn('⚠ WAHA desconectado, pausando fila:', e.message);
           } else {
             await query(
@@ -184,6 +192,18 @@ async function iniciar() {
     console.log(
       `✿ Worker WhatsApp (WAHA) iniciado (range limit: ${DELAY_MIN}s a ${DELAY_MAX}s | limite 24h: ${LIMITE_24H})`
     );
+
+    // Confere se a sessão já está pronta ou se precisa ser iniciada
+    try {
+      const st = await waha.statusSessao();
+      if (st === 'FAILED' || st === 'STOPPED') {
+        console.log(`✿ Sessão WAHA encontrada em '${st}' ao inicializar. Acionando reinício...`);
+        await waha.reiniciarSessao();
+      }
+    } catch (e) {
+      console.warn('Aviso: não foi possível checar sessão WAHA na inicialização:', e.message);
+    }
+
     ciclo();
   } catch (e) {
     console.error('Erro ao iniciar worker WhatsApp:', e.message);

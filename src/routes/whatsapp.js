@@ -28,6 +28,18 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// POST /api/whatsapp/reconectar -> Tenta reconectar/reiniciar a sessão do WhatsApp caso tenha caído
+router.post('/reconectar', async (req, res) => {
+  try {
+    await waha.reiniciarSessao();
+    acordarFila();
+    const sessao = await waha.statusSessao().catch(() => 'REINICIANDO');
+    res.json({ ok: true, sessao, mensagem: 'Reinicialização da sessão WAHA executada.' });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 // GET /api/whatsapp/fila -> resumo da fila (aprovacao / pendente / enviando / enviada / erro) + itens aguardando confirmação
 router.get('/fila', async (req, res, next) => {
   try {
