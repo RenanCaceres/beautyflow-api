@@ -38,9 +38,16 @@ async function reiniciarSessao() {
   } catch {}
   await sleep(1500);
   try {
-    await req(`/api/sessions/${SESSION}/start`, { method: 'POST' });
-  } catch (e) {
-    console.error(`Erro ao reiniciar sessão WAHA ${SESSION}:`, e.message);
+    await req(`/api/sessions/${SESSION}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: SESSION, config: { noweb: { markOnline: false } } }),
+    });
+  } catch {
+    try {
+      await req(`/api/sessions/${SESSION}/start`, { method: 'POST' });
+    } catch (e) {
+      console.error(`Erro ao reiniciar sessão WAHA ${SESSION}:`, e.message);
+    }
   }
 }
 
