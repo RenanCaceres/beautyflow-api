@@ -9,15 +9,31 @@ const { garantirSchemaSaas } = require('./database/migracaoSaas');
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────
-const origens = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',');
-app.use(cors({
-  origin: (origin, cb) => {
-    // Permite requisições sem origin (app mobile / Postman / Ngrok / mesmo domínio)
-    if (!origin || origens.includes(origin)) return cb(null, true);
-    cb(new Error('CORS bloqueado: ' + origin));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+const origens = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors((req, cb) => {
+  const origin = req.header('Origin');
+  const host = req.get('host');
+  let mesmoHost = false;
+  if (origin && host) {
+    try {
+      mesmoHost = new URL(origin).host === host;
+    } catch {}
+  }
+
+  // Permite requisições sem origin (app mobile / curl), mesmo domínio/IP (/admin) ou CORS_ORIGINS
+  if (!origin || mesmoHost || origens.includes(origin)) {
+    return cb(null, {
+      origin: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
+    });
+  }
+
+  cb(new Error('CORS bloqueado: ' + origin));
 }));
 
 // ── Body parser ───────────────────────────────────────────────
