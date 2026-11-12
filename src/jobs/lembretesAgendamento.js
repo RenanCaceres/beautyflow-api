@@ -29,6 +29,7 @@ function formatarListaNomes(nomesString) {
 const SQL_AGENDAMENTOS_COM_SERVICOS = `
   SELECT
     a.id,
+    a.usuario_id,
     a.data_hora,
     a.status,
     c.id AS cliente_id,
@@ -43,6 +44,7 @@ const SQL_AGENDAMENTOS_COM_SERVICOS = `
       'seu atendimento'
     ) AS servicos_nomes
   FROM agendamentos a
+  JOIN usuarios u ON u.id = a.usuario_id
   JOIN clientes c ON c.id = a.cliente_id
   LEFT JOIN servicos sl ON sl.id = a.servico_id
   LEFT JOIN agendamento_servicos ags ON ags.agendamento_id = a.id
@@ -50,19 +52,21 @@ const SQL_AGENDAMENTOS_COM_SERVICOS = `
 `;
 
 /**
- * 1. Lembrete no dia do agendamento (para agendamentos de hoje que ainda estão a > 45 min
- *    e que não acabaram de ser agendados hoje mesmo com mensagem de confirmação)
+ * 1. Lembrete no dia do agendamento (apenas para contas ativas com sessão WAHA configurada)
  */
 async function enfileirarLembretesDoDia() {
   const r = await query(`
     ${SQL_AGENDAMENTOS_COM_SERVICOS}
-    WHERE a.status = 'agendado'
+    WHERE u.ativo = TRUE
+      AND COALESCE(TRIM(u.waha_session), '') <> ''
+      AND a.status = 'agendado'
       AND COALESCE(c.aceita_whatsapp, TRUE) = TRUE
       AND a.data_hora::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
       AND a.data_hora > (NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '45 minutes'
       AND NOT EXISTS (
         SELECT 1 FROM mensagens_whatsapp m
-        WHERE m.cliente_id = c.id
+        WHERE m.usuario_id = a.usuario_id
+          AND m.cliente_id = c.id
           AND m.tipo = 'confirmacao'
           AND m.referencia LIKE ('ag-conf-' || a.id || '-%')
           AND (m.criado_em AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
@@ -83,10 +87,10 @@ async function enfileirarLembretesDoDia() {
       `para fazer ${listaServicos} ✨ Estamos te esperando!`;
 
     const ins = await query(
-      `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto)
-       VALUES ($1, $2, 'lembrete_dia', $3, $4)
+      `INSERT INTO mensagens_whatsapp (usuario_id, cliente_id, telefone, tipo, referencia, texto)
+       VALUES ($1, $2, $3, 'lembrete_dia', $4, $5)
        ON CONFLICT (cliente_id, tipo, referencia) DO NOTHING`,
-      [ag.cliente_id, ag.cliente_telefone, ref, texto]
+      [ag.usuario_id, ag.cliente_id, ag.cliente_telefone, ref, texto]
     );
     novos += ins.rowCount;
   }
@@ -104,7 +108,9 @@ async function enfileirarLembretesDoDia() {
 async function enfileirarLembretes30Min() {
   const r = await query(`
     ${SQL_AGENDAMENTOS_COM_SERVICOS}
-    WHERE a.status = 'agendado'
+    WHERE u.ativo = TRUE
+      AND COALESCE(TRIM(u.waha_session), '') <> ''
+      AND a.status = 'agendado'
       AND COALESCE(c.aceita_whatsapp, TRUE) = TRUE
       AND a.data_hora >= (NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '15 minutes'
       AND a.data_hora <= (NOW() AT TIME ZONE 'America/Sao_Paulo') + INTERVAL '35 minutes'
@@ -124,10 +130,10 @@ async function enfileirarLembretes30Min() {
       `(às ${hora}) ⏰ Já estamos te esperando!`;
 
     const ins = await query(
-      `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto)
-       VALUES ($1, $2, 'lembrete_30m', $3, $4)
+      `INSERT INTO mensagens_whatsapp (usuario_id, cliente_id, telefone, tipo, referencia, texto)
+       VALUES ($1, $2, $3, 'lembrete_30m', $4, $5)
        ON CONFLICT (cliente_id, tipo, referencia) DO NOTHING`,
-      [ag.cliente_id, ag.cliente_telefone, ref, texto]
+      [ag.usuario_id, ag.cliente_id, ag.cliente_telefone, ref, texto]
     );
     novos += ins.rowCount;
   }
@@ -140,14 +146,12 @@ async function enfileirarLembretes30Min() {
 }
 
 function iniciar() {
-  // Verifica a cada 1 minuto os lembretes de 30 minutos antes
   cron.schedule(
     '* * * * *',
     () => enfileirarLembretes30Min().catch((err) => console.error('Erro lembrete 30min:', err.message)),
     { timezone: 'America/Sao_Paulo' }
   );
 
-  // Verifica às 07:30 da manhã (e a cada 5 min das 07h às 20h para novos agendamentos do dia)
   cron.schedule(
     '*/5 7-20 * * *',
     () => {

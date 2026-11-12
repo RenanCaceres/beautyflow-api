@@ -4,7 +4,6 @@ const { gerarMensagemUnicaRetorno } = require('../services/contextoRetorno');
 
 const router = express.Router();
 
-// A chave é lida automaticamente da variável de ambiente GEMINI_API_KEY
 let aiInstance = null;
 function getAI() {
   if (!aiInstance) aiInstance = new GoogleGenAI({});
@@ -13,9 +12,6 @@ function getAI() {
 const MODELO = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 // POST /api/marketing/mensagem-retorno
-// body: { nome, servico, diasAtraso }
-// Exclusivo do módulo de Retorno: consulta clima da cidade, datas comemorativas
-// e início/meio/fim de semana para gerar uma mensagem única com o nome da cliente.
 router.post('/mensagem-retorno', async (req, res) => {
   const { nome, servico, diasAtraso } = req.body;
 
@@ -25,6 +21,8 @@ router.post('/mensagem-retorno', async (req, res) => {
 
   try {
     const resultado = await gerarMensagemUnicaRetorno({
+      usuarioId: req.usuarioId,
+      cidade: req.usuario,
       nome,
       servico,
       diasAtraso: diasAtraso ?? 0,
@@ -36,9 +34,6 @@ router.post('/mensagem-retorno', async (req, res) => {
   }
 });
 
-// POST /api/marketing/chat
-// body: { mensagens: [{ role: 'user'|'model', texto: '...' }, ...] }
-// Chat iterativo pra montar uma mensagem-modelo de campanha (tela Marketing).
 const INSTRUCAO_SISTEMA = `
 Você ajuda a dona de um salão de beleza a escrever mensagens de marketing
 (templates) pra mandar no WhatsApp de várias clientes de uma vez.

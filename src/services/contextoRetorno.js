@@ -7,12 +7,12 @@ function getAI() {
 }
 const MODELO_PADRAO = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
-const CIDADE_NOME = process.env.CIDADE_NOME || 'Cornélio Procópio - PR';
-const CIDADE_LAT  = process.env.CIDADE_LAT  || '-23.1811';
-const CIDADE_LON  = process.env.CIDADE_LON  || '-50.6469';
+const CIDADE_NOME = process.env.CIDADE_NOME || 'São Paulo - SP';
+const CIDADE_LAT  = process.env.CIDADE_LAT  || '-23.5505';
+const CIDADE_LON  = process.env.CIDADE_LON  || '-46.6333';
 
-// Cache de clima por 30 minutos para evitar chamadas repetidas em disparos em lote
-let cacheClima = { ts: 0, texto: null };
+// Cache de clima por coordenada (30 minutos) para suportar múltiplas cidades no SaaS
+const cacheClima = new Map();
 
 function traduzirWeatherCode(code, temp) {
   let condicao = 'tempo agradável';
@@ -33,17 +33,23 @@ function traduzirWeatherCode(code, temp) {
   return `${Math.round(temp)}°C (${sensacao}, ${condicao})`;
 }
 
-async function obterClimaCidade() {
+async function obterClimaCidade(cidade = {}) {
+  const nome = cidade?.cidade_nome || cidade?.nome || CIDADE_NOME;
+  const lat  = cidade?.cidade_lat  || cidade?.lat  || CIDADE_LAT;
+  const lon  = cidade?.cidade_lon  || cidade?.lon  || CIDADE_LON;
+  const chave = `${lat},${lon},${nome}`;
+
   const agora = Date.now();
-  if (cacheClima.texto && agora - cacheClima.ts < 30 * 60 * 1000) {
-    return cacheClima.texto;
+  const emCache = cacheClima.get(chave);
+  if (emCache && agora - emCache.ts < 30 * 60 * 1000) {
+    return emCache.texto;
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   try {
     const url =
-      `https://api.open-meteo.com/v1/forecast?latitude=${CIDADE_LAT}&longitude=${CIDADE_LON}` +
+      `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}` +
       `&current=temperature_2m,weather_code` +
       `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max` +
       `&timezone=America%2FSao_Paulo&forecast_days=1`;
@@ -65,11 +71,11 @@ async function obterClimaCidade() {
           (chuvaProb != null && chuvaProb >= 40 ? `, ${chuvaProb}% de chance de chuva` : '')
         : '';
 
-    const texto = `${CIDADE_NOME}: ${resumoAtual}${detalhesDia}`;
-    cacheClima = { ts: agora, texto };
+    const texto = `${nome}: ${resumoAtual}${detalhesDia}`;
+    cacheClima.set(chave, { ts: agora, texto });
     return texto;
-  } catch (e) {
-    return `${CIDADE_NOME} (clima não consultado no momento)`;
+  } catch {
+    return `${nome} (clima não consultado no momento)`;
   } finally {
     clearTimeout(timer);
   }
@@ -137,14 +143,13 @@ function obterDatasComemorativasProximas(data = obterDataBrasil()) {
     { mes: 12, dia: 31, nome: 'Réveillon / Virada de Ano' },
   ];
 
-  // Datas móveis importantes para salão
-  const diaMaes = nEsimoDiaSemanaMes(ano, 4, 0, 2); // 2º domingo de maio
+  const diaMaes = nEsimoDiaSemanaMes(ano, 4, 0, 2);
   if (diaMaes) datasFixas.push({ mes: 5, dia: diaMaes, nome: 'Dia das Mães' });
 
-  const diaPais = nEsimoDiaSemanaMes(ano, 7, 0, 2); // 2º domingo de agosto
+  const diaPais = nEsimoDiaSemanaMes(ano, 7, 0, 2);
   if (diaPais) datasFixas.push({ mes: 8, dia: diaPais, nome: 'Dia dos Pais' });
 
-  const blackFriday = nEsimoDiaSemanaMes(ano, 10, 5, 4); // 4ª sexta de novembro
+  const blackFriday = nEsimoDiaSemanaMes(ano, 10, 5, 4);
   if (blackFriday) datasFixas.push({ mes: 11, dia: blackFriday, nome: 'Black Friday' });
 
   const hojeMeiaNoite = new Date(ano, data.getMonth(), data.getDate());
@@ -162,7 +167,6 @@ function obterDatasComemorativasProximas(data = obterDataBrasil()) {
     }
   }
 
-  // Temas mensais sazonais
   const mesAtual = data.getMonth() + 1;
   if (mesAtual === 10 && encontradas.length === 0) {
     encontradas.push('Mês do Outubro Rosa (cuidado e autoestima feminina)');
@@ -173,24 +177,28 @@ function obterDatasComemorativasProximas(data = obterDataBrasil()) {
   return encontradas.length > 0 ? encontradas.join('; ') : 'Nenhuma data comemorativa imediata nos próximos dias';
 }
 
-async function obterDisponibilidadeAgenda(dataBase = obterDataBrasil()) {
+async function obterDisponibilidadeAgenda(usuarioId, dataBase = obterDataBrasil()) {
   const diasNomes = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-  let bloqueadosSet = new Map();
+  const bloqueadosSet = new Map();
 
-  try {
-    const { query } = require('../database');
-    const r = await query(`
-      SELECT TO_CHAR(data, 'YYYY-MM-DD') AS data_iso, motivo
-      FROM dias_indisponiveis
-      WHERE data >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
-        AND data <= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '15 days')
-      ORDER BY data ASC
-    `);
-    for (const row of r.rows) {
-      bloqueadosSet.set(row.data_iso, row.motivo || 'Indisponível');
+  if (usuarioId) {
+    try {
+      const { query } = require('../database');
+      const r = await query(
+        `SELECT TO_CHAR(data, 'YYYY-MM-DD') AS data_iso, motivo
+         FROM dias_indisponiveis
+         WHERE usuario_id = $1
+           AND data >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+           AND data <= ((NOW() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '15 days')
+         ORDER BY data ASC`,
+        [usuarioId]
+      );
+      for (const row of r.rows) {
+        bloqueadosSet.set(row.data_iso, row.motivo || 'Indisponível');
+      }
+    } catch {
+      // Segue sem bloqueios em caso de erro de consulta
     }
-  } catch {
-    // Se a tabela ainda não existir, segue sem bloqueios
   }
 
   const indisponiveisLista = [];
@@ -210,7 +218,6 @@ async function obterDisponibilidadeAgenda(dataBase = obterDataBrasil()) {
     if (bloqueadosSet.has(iso)) {
       indisponiveisLista.push(`${rotuloRelativo} (${br} - ${bloqueadosSet.get(iso)})`);
     } else if (dow === 0) {
-      // Domingo por padrão não é sugerido como dia útil de agendamento
       indisponiveisLista.push(`${rotuloRelativo} (${br} - Domingo)`);
     } else if (i >= 1 && disponiveisLista.length < 4) {
       disponiveisLista.push(`${nomeDia} (${br})`);
@@ -229,11 +236,11 @@ async function obterDisponibilidadeAgenda(dataBase = obterDataBrasil()) {
   };
 }
 
-async function montarContextoDia() {
+async function montarContextoDia({ usuarioId = null, cidade = null } = {}) {
   const data = obterDataBrasil();
   const [clima, disponibilidade] = await Promise.all([
-    obterClimaCidade(),
-    obterDisponibilidadeAgenda(data),
+    obterClimaCidade(cidade || {}),
+    obterDisponibilidadeAgenda(usuarioId, data),
   ]);
   const semana = obterMomentoSemana(data);
   const datasComemorativas = obterDatasComemorativasProximas(data);
@@ -262,7 +269,6 @@ async function gerarConteudoGemini(prompt) {
     const r = await ai.models.generateContent({ model: MODELO_PADRAO, contents: prompt });
     return r.text.trim();
   } catch (e) {
-    // Fallback para gemini-2.5-flash se o modelo padrão falhar
     if (MODELO_PADRAO !== 'gemini-2.5-flash') {
       const r2 = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
       return r2.text.trim();
@@ -271,17 +277,15 @@ async function gerarConteudoGemini(prompt) {
   }
 }
 
-/**
- * Gera uma mensagem única de retorno no Gemini usando:
- * - Nome da cliente registrado na agenda
- * - Serviço mais vencido (e dias de atraso)
- * - Clima atual da cidade
- * - Datas comemorativas próximas
- * - Momento da semana (início / meio / fim de semana)
- * - Disponibilidade real da agenda (dias indisponíveis vs próximos dias livres)
- */
-async function gerarMensagemUnicaRetorno({ nome, servico, diasAtraso = 0, indiceVariacao = null }) {
-  const ctx = await montarContextoDia();
+async function gerarMensagemUnicaRetorno({
+  usuarioId = null,
+  cidade = null,
+  nome,
+  servico,
+  diasAtraso = 0,
+  indiceVariacao = null,
+}) {
+  const ctx = await montarContextoDia({ usuarioId, cidade });
   const nomeAgenda = String(nome || '').trim();
   const primeiroNome = nomeAgenda.split(' ')[0] || nomeAgenda;
 
@@ -333,7 +337,6 @@ REGRAS OBRIGATÓRIAS:
     let mensagem = await gerarConteudoGemini(prompt);
     mensagem = mensagem.replace(/^["']|["']$/g, '').trim();
 
-    // Garante que o nome da cliente registrado na agenda esteja na mensagem
     if (
       !mensagem.toLowerCase().includes(primeiroNome.toLowerCase()) &&
       !mensagem.toLowerCase().includes(nomeAgenda.toLowerCase())

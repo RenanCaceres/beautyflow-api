@@ -1,17 +1,64 @@
 -- ===========================================
---  BeautyFlow — PostgreSQL v2
+--  BeautyFlow — PostgreSQL v3 (SaaS Multi-Tenant)
 --  Execute no Railway ou em qualquer Postgres
 -- ===========================================
 
-CREATE TABLE IF NOT EXISTS clientes (
+CREATE TABLE IF NOT EXISTS usuarios (
+  id               SERIAL PRIMARY KEY,
+  username         VARCHAR(60)  NOT NULL UNIQUE,
+  nome             VARCHAR(120) NOT NULL,
+  nome_salao       VARCHAR(120),
+  email            VARCHAR(160) UNIQUE,
+  senha_hash       TEXT NOT NULL,
+  role             VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user')),
+  ativo            BOOLEAN NOT NULL DEFAULT TRUE,
+  waha_session     VARCHAR(80),
+  cidade_nome      VARCHAR(120),
+  cidade_lat       VARCHAR(30),
+  cidade_lon       VARCHAR(30),
+  plano            VARCHAR(60) NOT NULL DEFAULT 'Profissional',
+  valor_mensal     NUMERIC(10,2) NOT NULL DEFAULT 0,
+  dia_vencimento   INT NOT NULL DEFAULT 10,
+  observacao_admin TEXT,
+  criado_em        TIMESTAMP DEFAULT NOW(),
+  atualizado_em    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pagamentos_saas (
+  id              SERIAL PRIMARY KEY,
+  usuario_id      INT           NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  competencia     VARCHAR(7)    NOT NULL,
+  valor           NUMERIC(10,2) NOT NULL,
+  status          VARCHAR(20)   NOT NULL DEFAULT 'pago' CHECK (status IN ('pago','pendente','isento')),
+  data_pagamento  DATE,
+  forma_pagamento VARCHAR(40),
+  observacao      VARCHAR(200),
+  criado_em       TIMESTAMP     DEFAULT NOW(),
+  UNIQUE (usuario_id, competencia)
+);
+
+CREATE TABLE IF NOT EXISTS despesas_saas (
   id         SERIAL PRIMARY KEY,
-  nome       VARCHAR(100) NOT NULL,
-  telefone   VARCHAR(20)  NOT NULL,
-  criado_em  TIMESTAMP    DEFAULT NOW()
+  descricao  VARCHAR(150)  NOT NULL,
+  categoria  VARCHAR(60)   DEFAULT 'Infraestrutura',
+  valor      NUMERIC(10,2) NOT NULL,
+  data       DATE          NOT NULL DEFAULT CURRENT_DATE,
+  observacao VARCHAR(200),
+  criado_em  TIMESTAMP     DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clientes (
+  id              SERIAL PRIMARY KEY,
+  usuario_id      INT          NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  nome            VARCHAR(100) NOT NULL,
+  telefone        VARCHAR(20)  NOT NULL,
+  aceita_whatsapp BOOLEAN      NOT NULL DEFAULT TRUE,
+  criado_em       TIMESTAMP    DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS servicos (
   id                     SERIAL PRIMARY KEY,
+  usuario_id             INT            NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   nome                   VARCHAR(100)   NOT NULL,
   valor                  NUMERIC(10,2)  NOT NULL,
   intervalo_retorno_dias INT            NOT NULL DEFAULT 30,
@@ -20,6 +67,7 @@ CREATE TABLE IF NOT EXISTS servicos (
 
 CREATE TABLE IF NOT EXISTS agendamentos (
   id          SERIAL PRIMARY KEY,
+  usuario_id  INT          NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   servico_id  INT          REFERENCES servicos(id),  -- mantido para retrocompatibilidade
   data_hora   TIMESTAMP    NOT NULL,
@@ -38,25 +86,18 @@ CREATE TABLE IF NOT EXISTS agendamento_servicos (
 );
 
 CREATE TABLE IF NOT EXISTS consumo (
-  id        SERIAL PRIMARY KEY,
-  produto   VARCHAR(150)  NOT NULL,
-  valor     NUMERIC(10,2) NOT NULL,
-  data      DATE          NOT NULL DEFAULT CURRENT_DATE,
-  criado_em TIMESTAMP     DEFAULT NOW()
+  id         SERIAL PRIMARY KEY,
+  usuario_id INT           NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  produto    VARCHAR(150)  NOT NULL,
+  valor      NUMERIC(10,2) NOT NULL,
+  data       DATE          NOT NULL DEFAULT CURRENT_DATE,
+  criado_em  TIMESTAMP     DEFAULT NOW()
 );
-
--- Migração: popula agendamento_servicos com dados existentes
-INSERT INTO agendamento_servicos (agendamento_id, servico_id)
-SELECT id, servico_id FROM agendamentos
-WHERE servico_id IS NOT NULL
-ON CONFLICT DO NOTHING;
-
--- Permite a cliente pedir pra não receber mais mensagens no WhatsApp
-ALTER TABLE clientes ADD COLUMN IF NOT EXISTS aceita_whatsapp BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- Fila/histórico de mensagens do WhatsApp (WAHA)
 CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
   id          SERIAL PRIMARY KEY,
+  usuario_id  INT          NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   cliente_id  INT          NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
   telefone    VARCHAR(20)  NOT NULL,
   tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('confirmacao','retorno','marketing','lembrete_dia','lembrete_30m')),
@@ -72,46 +113,18 @@ CREATE TABLE IF NOT EXISTS mensagens_whatsapp (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_msg_unica
   ON mensagens_whatsapp (cliente_id, tipo, referencia);
 
--- Dias em que a profissional está indisponível / de folga
+-- Dias em que a profissional está indisponível / de folga (isolado por usuário)
 CREATE TABLE IF NOT EXISTS dias_indisponiveis (
-  data      DATE PRIMARY KEY,
-  motivo    VARCHAR(120),
-  criado_em TIMESTAMP DEFAULT NOW()
+  usuario_id INT          NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  data       DATE         NOT NULL,
+  motivo     VARCHAR(120),
+  criado_em  TIMESTAMP    DEFAULT NOW(),
+  PRIMARY KEY (usuario_id, data)
 );
 
-
--- Dados de exemplo (só insere se estiver vazio)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM clientes LIMIT 1) THEN
-
-    INSERT INTO clientes (nome, telefone) VALUES
-      ('Ana Paula Silva',   '(43) 9 9123-4567'),
-      ('Carla Mendes',      '(43) 9 9876-5432'),
-      ('Juliana Rodrigues', '(43) 9 9111-2233'),
-      ('Mariana Ferreira',  '(43) 9 9444-5566'),
-      ('Patricia Souza',    '(43) 9 9555-7788');
-
-    INSERT INTO servicos (nome, valor, intervalo_retorno_dias) VALUES
-      ('Limpeza de Pele',       150.00, 30),
-      ('Design de Sobrancelha',  50.00, 21),
-      ('Peeling Químico',       220.00, 45),
-      ('Hidratação Facial',      90.00, 15);
-
-    INSERT INTO agendamentos (cliente_id, servico_id, data_hora, status) VALUES
-      (1, 1, NOW(),                    'agendado'),
-      (2, 2, NOW(),                    'agendado'),
-      (3, 3, NOW() - INTERVAL '2 days','realizado'),
-      (4, 4, NOW() - INTERVAL '5 days','realizado'),
-      (5, 1, NOW() - INTERVAL '1 day', 'realizado');
-
-    INSERT INTO agendamento_servicos (agendamento_id, servico_id) VALUES
-      (1, 1), (2, 2), (3, 3), (4, 4), (5, 1);
-
-    INSERT INTO consumo (produto, valor, data) VALUES
-      ('Ácido Glicólico 30%',          89.00, CURRENT_DATE - 10),
-      ('Creme Hidratante Profissional', 134.00, CURRENT_DATE - 12),
-      ('Henna para Sobrancelha',         45.00, CURRENT_DATE - 15);
-
-  END IF;
-END $$;
+CREATE INDEX IF NOT EXISTS idx_clientes_usuario          ON clientes (usuario_id, nome);
+CREATE INDEX IF NOT EXISTS idx_servicos_usuario          ON servicos (usuario_id, nome);
+CREATE INDEX IF NOT EXISTS idx_agendamentos_usuario_data ON agendamentos (usuario_id, data_hora);
+CREATE INDEX IF NOT EXISTS idx_consumo_usuario_data      ON consumo (usuario_id, data);
+CREATE INDEX IF NOT EXISTS idx_mensagens_usuario_status  ON mensagens_whatsapp (usuario_id, status);
+CREATE INDEX IF NOT EXISTS idx_dias_indisp_usuario_data  ON dias_indisponiveis (usuario_id, data);

@@ -275,9 +275,9 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 GEMINI_API_KEY=sua_chave_do_google_gemini_aqui
 
 # Cidade para consulta de clima em tempo real (Open-Meteo) no módulo de Retorno
-CIDADE_NOME=Cornélio Procópio - PR
-CIDADE_LAT=-23.1811
-CIDADE_LON=-50.6469
+CIDADE_NOME=São Paulo - SP
+CIDADE_LAT=-23.5505
+CIDADE_LON=-46.6333
 
 # Integração WAHA (https://waha.devlike.pro) e Range Limit Anti-Ban
 WAHA_URL=http://localhost:3001

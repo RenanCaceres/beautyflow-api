@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeautyFlow SaaS — Painel Administrativo</title>
+  <link rel="stylesheet" href="/admin/styles.css" />
+</head>
+<body>
+  <!-- Tela de Login Admin -->
+  <section id="login-view" class="login-wrapper hidden">
+    <div class="login-card">
+      <div class="brand">
+        <div class="brand-badge">✿</div>
+        <div>
+          <h1>BeautyFlow Admin</h1>
+          <p>Gestão de contas e controle financeiro SaaS</p>
+        </div>
+      </div>
+
+      <div id="login-erro" class="alert alert-error hidden"></div>
+
+      <form id="login-form">
+        <div class="field">
+          <label for="login-usuario">Usuário</label>
+          <input id="login-usuario" type="text" placeholder="ex: vanessa" autocomplete="username" required />
+        </div>
+        <div class="field">
+          <label for="login-senha">Senha</label>
+          <input id="login-senha" type="password" placeholder="Sua senha de administrador" autocomplete="current-password" required />
+        </div>
+        <button id="login-btn" type="submit" class="btn btn-primary btn-full">Entrar no Painel</button>
+      </form>
+      <p class="login-hint">Apenas contas com permissão de administrador têm acesso a este painel.</p>
+    </div>
+  </section>
+
+  <!-- Painel Principal -->
+  <div id="app-view" class="app-shell hidden">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand-inline">
+          <span class="brand-badge sm">✿</span>
+          <div>
+            <strong>BeautyFlow SaaS</strong>
+            <span class="sub">Painel Administrativo</span>
+          </div>
+        </div>
+
+        <nav class="tabs">
+          <button class="tab-btn active" data-tab="contas">Contas &amp; Acessos</button>
+          <button class="tab-btn" data-tab="financeiro">Financeiro SaaS</button>
+        </nav>
+
+        <div class="topbar-user">
+          <span id="admin-nome" class="user-pill">Admin</span>
+          <button id="btn-sair" class="btn btn-ghost btn-sm">Sair</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- ABA 1: CONTAS -->
+      <section id="tab-contas" class="tab-panel">
+        <div class="section-head">
+          <div>
+            <h2>Contas do SaaS</h2>
+            <p class="muted">Crie novos acessos (usuário + senha), gerencie sessões WAHA e configure mensalidades.</p>
+          </div>
+          <button id="btn-nova-conta" class="btn btn-primary">+ Nova Conta</button>
+        </div>
+
+        <div id="contas-kpis" class="kpi-grid kpi-grid-4"></div>
+
+        <div class="card toolbar">
+          <input id="busca-contas" type="search" placeholder="Buscar por usuário, nome, salão ou plano..." />
+          <button id="btn-recarregar-contas" class="btn btn-ghost btn-sm">Atualizar</button>
+        </div>
+
+        <div class="card table-card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Usuário / Salão</th>
+                  <th>Plano &amp; Mensalidade</th>
+                  <th>WAHA / Cidade</th>
+                  <th>Uso</th>
+                  <th>Status</th>
+                  <th class="right">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tabela-contas"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 2: FINANCEIRO -->
+      <section id="tab-financeiro" class="tab-panel hidden">
+        <div class="section-head">
+          <div>
+            <h2>Controle Financeiro SaaS</h2>
+            <p class="muted">Acompanhe mensalidades das clientes, recebimentos, inadimplência e despesas operacionais.</p>
+          </div>
+          <div class="row-gap">
+            <input id="fin-competencia" type="month" class="month-input" />
+            <button id="btn-nova-despesa" class="btn btn-ghost">+ Nova Despesa</button>
+          </div>
+        </div>
+
+        <div id="fin-kpis" class="kpi-grid kpi-grid-5"></div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Evolução dos Últimos 6 Meses (Recebido × Despesas)</h3>
+          </div>
+          <div id="fin-grafico" class="chart-bars"></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card table-card">
+            <div class="card-head">
+              <h3>Mensalidades da Competência</h3>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Conta</th>
+                    <th>Venc. / Valor</th>
+                    <th>Status</th>
+                    <th class="right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-mensalidades"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-head">
+              <h3>Despesas Operacionais do Mês</h3>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Descrição / Categoria</th>
+                    <th>Data</th>
+                    <th>Valor</th>
+                    <th class="right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody id="tabela-despesas"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL CONTA -->
+  <div id="modal-conta" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modal-conta-titulo">Nova Conta</h3>
+        <button class="modal-close" data-close="modal-conta">&times;</button>
+      </div>
+      <form id="form-conta" class="modal-body">
+        <input type="hidden" id="conta-id" />
+        <div id="conta-erro" class="alert alert-error hidden"></div>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="conta-username">Usuário (login no app) *</label>
+            <input id="conta-username" type="text" placeholder="ex: maria.silva" required />
+          </div>
+          <div class="field">
+            <label for="conta-senha">Senha <span id="conta-senha-hint">(mín. 6 caracteres) *</span></label>
+            <input id="conta-senha" type="password" placeholder="••••••" />
+          </div>
+          <div class="field">
+            <label for="conta-nome">Nome completo *</label>
+            <input id="conta-nome" type="text" placeholder="Maria Silva" required />
+          </div>
+          <div class="field">
+            <label for="conta-salao">Nome do salão</label>
+            <input id="conta-salao" type="text" placeholder="Studio Maria" />
+          </div>
+          <div class="field">
+            <label for="conta-email">E-mail (opcional)</label>
+            <input id="conta-email" type="email" placeholder="opcional@email.com" />
+          </div>
+          <div class="field">
+            <label for="conta-role">Perfil</label>
+            <select id="conta-role">
+              <option value="user">Usuária (Agenda)</option>
+              <option value="admin">Administrador (Agenda + Painel)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="conta-plano">Plano</label>
+            <input id="conta-plano" type="text" placeholder="Profissional" value="Profissional" />
+          </div>
+          <div class="field">
+            <label for="conta-valor">Mensalidade (R$)</label>
+            <input id="conta-valor" type="number" step="0.01" min="0" placeholder="99.90" />
+          </div>
+          <div class="field">
+            <label for="conta-vencimento">Dia do vencimento</label>
+            <input id="conta-vencimento" type="number" min="1" max="28" value="10" />
+          </div>
+          <div class="field">
+            <label for="conta-waha">Sessão WAHA (opcional)</label>
+            <input id="conta-waha" type="text" placeholder="ex: default ou maria" />
+          </div>
+          <div class="field">
+            <label for="conta-cidade">Cidade (clima no Retorno)</label>
+            <input id="conta-cidade" type="text" placeholder="São Paulo - SP" />
+          </div>
+          <div class="field row-2">
+            <div>
+              <label for="conta-lat">Latitude</label>
+              <input id="conta-lat" type="text" placeholder="-23.5505" />
+            </div>
+            <div>
+              <label for="conta-lon">Longitude</label>
+              <input id="conta-lon" type="text" placeholder="-46.6333" />
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="conta-obs">Observação interna</label>
+          <input id="conta-obs" type="text" placeholder="Anotações sobre o cliente SaaS..." />
+        </div>
+
+        <label class="checkbox-row">
+          <input id="conta-ativo" type="checkbox" checked />
+          <span>Conta ativa (pode acessar o app)</span>
+        </label>
+
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" data-close="modal-conta">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar Conta</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL PAGAMENTO MENSALIDADE -->
+  <div id="modal-pagamento" class="modal-backdrop hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3>Registrar Mensalidade</h3>
+        <button class="modal-close" data-close="modal-pagamento">&times;</button>
+      </div>
+      <form id="form-pagamento" class="modal-body">
+        <input type="hidden" id="pag-usuario-id" />
+        <p id="pag-conta-info" class="muted" style="margin-bottom:14px;"></p>
+
+        <div class="form-grid">
+          <div class="field">
+            <label for="pag-valor">Valor (R$) *</label>
+            <input id="pag-valor" type="number" step="0.01" min="0" required />
+          </div>
+          <div class="field">
+            <label for="pag-status">Status *</label>
+            <select id="pag-status">
+              <option value="pago">Pago</option>
+              <option value="pendente">Pendente</option>
+              <option value="isento">Isento</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="pag-data">Data do pagamento</label>
+            <input id="pag-data" type="date" />
+          </div>
+          <div class="field">
+            <label for="pag-forma">Forma</label>
+            <select id="pag-forma">
+              <option value="Pix">Pix</option>
+              <option value="Cartão">Cartão</option>
+              <option value="Dinheiro">Dinheiro</option>
+              <option value="Transferência">Transferência</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="pag-obs">Observação</label>
+          <input id="pag-obs" type="text" placeholder="Opcional..." />
+        </div>
+
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" data-close="modal-pagamento">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DESPESA SAAS -->
+  <div id="modal-despesa" class="modal-backdrop hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3>Nova Despesa do SaaS</h3>
+        <button class="modal-close" data-close="modal-despesa">&times;</button>
+      </div>
+      <form id="form-despesa" class="modal-body">
+        <div class="field">
+          <label for="desp-desc">Descrição *</label>
+          <input id="desp-desc" type="text" placeholder="Ex: Servidor Railway / Domínio" required />
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="desp-cat">Categoria</label>
+            <select id="desp-cat">
+              <option value="Infraestrutura">Infraestrutura</option>
+              <option value="API / IA">API / IA</option>
+              <option value="Domínio / SSL">Domínio / SSL</option>
+              <option value="Marketing">Marketing</option>
+              <option value="Impostos / Taxas">Impostos / Taxas</option>
+              <option value="Outros">Outros</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="desp-valor">Valor (R$) *</label>
+            <input id="desp-valor" type="number" step="0.01" min="0" required />
+          </div>
+        </div>
+        <div class="field">
+          <label for="desp-data">Data *</label>
+          <input id="desp-data" type="date" required />
+        </div>
+        <div class="field">
+          <label for="desp-obs">Observação</label>
+          <input id="desp-obs" type="text" placeholder="Opcional..." />
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" data-close="modal-despesa">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Registrar Despesa</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

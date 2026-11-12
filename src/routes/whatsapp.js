@@ -14,51 +14,84 @@ function personalizarMensagem(template, nomeCompleto) {
   return template;
 }
 
-// GET /api/whatsapp/status -> mostra se o WhatsApp está conectado + configuração do range limit
+function exigirSessaoWaha(req, res) {
+  const sessao = String(req.usuario?.waha_session || '').trim();
+  if (!sessao) {
+    res.status(400).json({
+      erro: 'Sessão do WhatsApp (WAHA) não configurada para esta conta.',
+    });
+    return null;
+  }
+  return sessao;
+}
+
+// GET /api/whatsapp/status
 router.get('/status', async (req, res) => {
+  const sessaoNome = String(req.usuario?.waha_session || '').trim();
+  if (!sessaoNome) {
+    return res.json({
+      sessao: 'NAO_CONFIGURADA',
+      configurada: false,
+      config: obterConfigFila(),
+    });
+  }
+
   try {
-    const sessao = await waha.statusSessao();
-    res.json({ sessao, config: obterConfigFila() });
+    const sessao = await waha.statusSessao(sessaoNome);
+    res.json({ sessao, configurada: true, config: obterConfigFila() });
   } catch (e) {
     res.status(503).json({
       sessao: 'INDISPONIVEL',
+      configurada: true,
       erro: e.message,
       config: obterConfigFila(),
     });
   }
 });
 
-// POST /api/whatsapp/reconectar -> Tenta reconectar/reiniciar a sessão do WhatsApp caso tenha caído
+// POST /api/whatsapp/reconectar
 router.post('/reconectar', async (req, res) => {
+  const sessaoNome = exigirSessaoWaha(req, res);
+  if (!sessaoNome) return;
+
   try {
-    await waha.reiniciarSessao();
+    await waha.reiniciarSessao(sessaoNome);
     acordarFila();
-    const sessao = await waha.statusSessao().catch(() => 'REINICIANDO');
+    const sessao = await waha.statusSessao(sessaoNome).catch(() => 'REINICIANDO');
     res.json({ ok: true, sessao, mensagem: 'Reinicialização da sessão WAHA executada.' });
   } catch (e) {
     res.status(500).json({ ok: false, erro: e.message });
   }
 });
 
-// GET /api/whatsapp/fila -> resumo da fila (aprovacao / pendente / enviando / enviada / erro) + itens aguardando confirmação
+// GET /api/whatsapp/fila
 router.get('/fila', async (req, res, next) => {
   try {
     const [r, aprov] = await Promise.all([
-      query(`SELECT status, COUNT(*)::int AS total FROM mensagens_whatsapp GROUP BY status`),
-      query(`
-        SELECT m.id, m.cliente_id, c.nome AS cliente_nome, m.telefone, m.texto, m.referencia, m.criado_em
-        FROM mensagens_whatsapp m
-        JOIN clientes c ON c.id = m.cliente_id
-        WHERE m.status = 'aprovacao'
-          AND m.tipo = 'retorno'
-          AND NOT EXISTS (
-            SELECT 1 FROM agendamentos a
-            WHERE a.cliente_id = m.cliente_id
-              AND a.status = 'agendado'
-              AND a.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
-          )
-        ORDER BY c.nome ASC
-      `),
+      query(
+        `SELECT status, COUNT(*)::int AS total
+         FROM mensagens_whatsapp
+         WHERE usuario_id = $1
+         GROUP BY status`,
+        [req.usuarioId]
+      ),
+      query(
+        `SELECT m.id, m.cliente_id, c.nome AS cliente_nome, m.telefone, m.texto, m.referencia, m.criado_em
+         FROM mensagens_whatsapp m
+         JOIN clientes c ON c.id = m.cliente_id
+         WHERE m.usuario_id = $1
+           AND m.status = 'aprovacao'
+           AND m.tipo = 'retorno'
+           AND NOT EXISTS (
+             SELECT 1 FROM agendamentos a
+             WHERE a.usuario_id = $1
+               AND a.cliente_id = m.cliente_id
+               AND a.status = 'agendado'
+               AND a.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+           )
+         ORDER BY c.nome ASC`,
+        [req.usuarioId]
+      ),
     ]);
     const contadores = { aprovacao: 0, pendente: 0, enviando: 0, enviada: 0, erro: 0 };
     for (const row of r.rows) {
@@ -73,8 +106,7 @@ router.get('/fila', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/whatsapp/retorno/aprovar -> Confirma o envio das mensagens automáticas de retorno
-// body: { ids?: [1, 2, 3] } (se passar ids, aprova apenas as selecionadas e descarta as desmarcadas)
+// POST /api/whatsapp/retorno/aprovar
 router.post('/retorno/aprovar', async (req, res, next) => {
   try {
     const { ids } = req.body || {};
@@ -85,17 +117,21 @@ router.post('/retorno/aprovar', async (req, res, next) => {
       const r = await query(
         `UPDATE mensagens_whatsapp
          SET status = 'pendente'
-         WHERE status = 'aprovacao' AND tipo = 'retorno' AND id = ANY($1::int[])`,
-        [idsNum]
+         WHERE usuario_id = $1 AND status = 'aprovacao' AND tipo = 'retorno' AND id = ANY($2::int[])`,
+        [req.usuarioId, idsNum]
       );
       aprovadas = r.rowCount;
-      // Remove as que foram desmarcadas pela usuária neste lote
       await query(
-        `DELETE FROM mensagens_whatsapp WHERE status = 'aprovacao' AND tipo = 'retorno'`
+        `DELETE FROM mensagens_whatsapp
+         WHERE usuario_id = $1 AND status = 'aprovacao' AND tipo = 'retorno'`,
+        [req.usuarioId]
       );
     } else {
       const r = await query(
-        `UPDATE mensagens_whatsapp SET status = 'pendente' WHERE status = 'aprovacao' AND tipo = 'retorno'`
+        `UPDATE mensagens_whatsapp
+         SET status = 'pendente'
+         WHERE usuario_id = $1 AND status = 'aprovacao' AND tipo = 'retorno'`,
+        [req.usuarioId]
       );
       aprovadas = r.rowCount;
     }
@@ -112,44 +148,47 @@ router.post('/retorno/aprovar', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/whatsapp/retorno/rejeitar -> Cancela o lote de retorno que estava aguardando confirmação
+// POST /api/whatsapp/retorno/rejeitar
 router.post('/retorno/rejeitar', async (req, res, next) => {
   try {
     const r = await query(
-      `DELETE FROM mensagens_whatsapp WHERE status = 'aprovacao' AND tipo = 'retorno'`
+      `DELETE FROM mensagens_whatsapp
+       WHERE usuario_id = $1 AND status = 'aprovacao' AND tipo = 'retorno'`,
+      [req.usuarioId]
     );
     res.json({ ok: true, removidas: r.rowCount });
   } catch (e) { next(e); }
 });
 
 // POST /api/whatsapp/retorno
-// Enfileira no WAHA a mensagem de retorno de uma cliente específica (após revisar/gerar com IA)
-// body: { clienteId, texto, servicoId, ultimoAtendimento }
 router.post('/retorno', async (req, res, next) => {
   try {
+    if (!exigirSessaoWaha(req, res)) return;
+
     const { clienteId, texto, servicoId, ultimoAtendimento } = req.body;
     if (!clienteId || !texto) {
       return res.status(400).json({ erro: 'clienteId e texto são obrigatórios' });
     }
 
-    const cli = await query(`SELECT id, nome, telefone FROM clientes WHERE id=$1`, [
-      parseInt(clienteId, 10),
-    ]);
+    const cli = await query(
+      `SELECT id, nome, telefone FROM clientes WHERE id=$1 AND usuario_id=$2`,
+      [parseInt(clienteId, 10), req.usuarioId]
+    );
     if (cli.rowCount === 0) {
       return res.status(404).json({ erro: 'Cliente não encontrada' });
     }
 
     const cliente = cli.rows[0];
 
-    // Verifica se a cliente já possui agendamento marcado para hoje ou futuro
     const jaAgendada = await query(
       `SELECT data_hora FROM agendamentos
-       WHERE cliente_id = $1
+       WHERE usuario_id = $1
+         AND cliente_id = $2
          AND status = 'agendado'
          AND data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
        ORDER BY data_hora ASC
        LIMIT 1`,
-      [cliente.id]
+      [req.usuarioId, cliente.id]
     );
     if (jaAgendada.rowCount > 0) {
       return res.status(409).json({
@@ -162,11 +201,11 @@ router.post('/retorno', async (req, res, next) => {
       : `manual-${Date.now()}`;
 
     await query(
-      `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto, status, erro)
-       VALUES ($1, $2, 'retorno', $3, $4, 'pendente', NULL)
+      `INSERT INTO mensagens_whatsapp (usuario_id, cliente_id, telefone, tipo, referencia, texto, status, erro)
+       VALUES ($1, $2, $3, 'retorno', $4, $5, 'pendente', NULL)
        ON CONFLICT (cliente_id, tipo, referencia)
        DO UPDATE SET texto = EXCLUDED.texto, status = 'pendente', erro = NULL`,
-      [cliente.id, cliente.telefone, ref, texto.trim()]
+      [req.usuarioId, cliente.id, cliente.telefone, ref, texto.trim()]
     );
 
     acordarFila();
@@ -179,13 +218,16 @@ router.post('/retorno', async (req, res, next) => {
 });
 
 // POST /api/whatsapp/retorno/disparar
-// Gera uma mensagem única no Gemini (com clima, data comemorativa e dia da semana)
-// para cada cliente do filtro/seleção e coloca na fila do WAHA com range limit.
-// body: { filtro: 'hoje'|'vencidas'|..., clienteIds?: [1,2] }
 router.post('/retorno/disparar', async (req, res, next) => {
   try {
+    if (!exigirSessaoWaha(req, res)) return;
+
     const { filtro, clienteIds } = req.body || {};
-    const resultado = await enfileirarRetornos({ filtro, clienteIds });
+    const resultado = await enfileirarRetornos({
+      usuarioId: req.usuarioId,
+      filtro,
+      clienteIds,
+    });
     res.status(202).json({
       ...resultado,
       config: obterConfigFila(),
@@ -194,11 +236,10 @@ router.post('/retorno/disparar', async (req, res, next) => {
 });
 
 // POST /api/whatsapp/campanha
-// Usado na aba Marketing: recebe a mensagem e os IDs das clientes marcadas no checkbox,
-// e dispara aos poucos no WhatsApp respeitando o range limit.
-// body: { mensagem: "Olá {{nome}}, ...", clienteIds: [1,2,3] }
 router.post('/campanha', async (req, res, next) => {
   try {
+    if (!exigirSessaoWaha(req, res)) return;
+
     const { mensagem, clienteIds } = req.body;
     if (!mensagem || !String(mensagem).trim()) {
       return res.status(400).json({ erro: 'A mensagem é obrigatória' });
@@ -210,9 +251,9 @@ router.post('/campanha', async (req, res, next) => {
     const idsNumericos = clienteIds.map((id) => parseInt(id, 10)).filter(Boolean);
     const clientes = await query(
       `SELECT id, nome, telefone FROM clientes
-       WHERE id = ANY($1::int[]) AND COALESCE(aceita_whatsapp, TRUE) = TRUE
+       WHERE usuario_id = $1 AND id = ANY($2::int[]) AND COALESCE(aceita_whatsapp, TRUE) = TRUE
        ORDER BY nome`,
-      [idsNumericos]
+      [req.usuarioId, idsNumericos]
     );
 
     const campanha = 'camp-' + Date.now();
@@ -221,10 +262,10 @@ router.post('/campanha', async (req, res, next) => {
     for (const c of clientes.rows) {
       const textoFinal = personalizarMensagem(mensagem.trim(), c.nome);
       const r = await query(
-        `INSERT INTO mensagens_whatsapp (cliente_id, telefone, tipo, referencia, texto)
-         VALUES ($1, $2, 'marketing', $3, $4)
+        `INSERT INTO mensagens_whatsapp (usuario_id, cliente_id, telefone, tipo, referencia, texto)
+         VALUES ($1, $2, $3, 'marketing', $4, $5)
          ON CONFLICT DO NOTHING`,
-        [c.id, c.telefone, campanha, textoFinal]
+        [req.usuarioId, c.id, c.telefone, campanha, textoFinal]
       );
       enfileiradas += r.rowCount;
     }

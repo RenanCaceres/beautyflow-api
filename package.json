@@ -7,16 +7,19 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js"
+    "dev": "nodemon src/app.js",
+    "usuario": "node scripts/usuarios.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
     "@google/genai": "^2.11.0",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.6.0",
     "pg": "^8.11.3"
   },

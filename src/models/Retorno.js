@@ -5,11 +5,11 @@ const SQL_BASE = `
     SELECT a.cliente_id, a.data_hora, ags.servico_id
     FROM agendamentos a
     JOIN agendamento_servicos ags ON ags.agendamento_id = a.id
-    WHERE a.status = 'realizado'
+    WHERE a.usuario_id = $1 AND a.status = 'realizado'
     UNION
     SELECT a.cliente_id, a.data_hora, a.servico_id
     FROM agendamentos a
-    WHERE a.status = 'realizado' AND a.servico_id IS NOT NULL
+    WHERE a.usuario_id = $1 AND a.status = 'realizado' AND a.servico_id IS NOT NULL
   ),
   ultimo_por_servico AS (
     SELECT DISTINCT ON (sr.cliente_id, sr.servico_id)
@@ -21,7 +21,7 @@ const SQL_BASE = `
       (sr.data_hora::date + s.intervalo_retorno_dias) AS data_retorno_ideal,
       ((sr.data_hora::date + s.intervalo_retorno_dias) - (NOW() AT TIME ZONE 'America/Sao_Paulo')::date) AS dias_para_retorno
     FROM servicos_realizados sr
-    JOIN servicos s ON s.id = sr.servico_id
+    JOIN servicos s ON s.id = sr.servico_id AND s.usuario_id = $1
     ORDER BY sr.cliente_id, sr.servico_id, sr.data_hora DESC
   )
 `;
@@ -37,7 +37,7 @@ function normalizarServicos(servicos = []) {
   });
 }
 
-async function listar(filtro = 'todas') {
+async function listar(usuarioId, filtro = 'todas') {
   const r = await query(`
     ${SQL_BASE}
     SELECT
@@ -77,15 +77,17 @@ async function listar(filtro = 'todas') {
       ORDER BY u.dias_para_retorno ASC, u.ultimo_atendimento DESC
       LIMIT 1
     ) mais_vencido ON true
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM agendamentos af
-      WHERE af.cliente_id = c.id
-        AND af.status = 'agendado'
-        AND af.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
-    )
+    WHERE c.usuario_id = $1
+      AND NOT EXISTS (
+        SELECT 1
+        FROM agendamentos af
+        WHERE af.usuario_id = $1
+          AND af.cliente_id = c.id
+          AND af.status = 'agendado'
+          AND af.data_hora::date >= (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+      )
     ORDER BY mais_vencido.dias_para_retorno ASC, c.nome ASC
-  `);
+  `, [usuarioId]);
 
   let rows = r.rows.map((row) => {
     const dias = parseInt(row.dias_para_retorno, 10);
@@ -107,7 +109,7 @@ async function listar(filtro = 'todas') {
   return rows;
 }
 
-async function buscarPorCliente(clienteId) {
+async function buscarPorCliente(usuarioId, clienteId) {
   const r = await query(
     `
     ${SQL_BASE}
@@ -119,10 +121,10 @@ async function buscarPorCliente(clienteId) {
       u.data_retorno_ideal,
       u.dias_para_retorno
     FROM ultimo_por_servico u
-    WHERE u.cliente_id = $1
+    WHERE u.cliente_id = $2
     ORDER BY u.dias_para_retorno ASC, u.ultimo_atendimento DESC
     `,
-    [parseInt(clienteId, 10)]
+    [usuarioId, parseInt(clienteId, 10)]
   );
   return normalizarServicos(r.rows);
 }
